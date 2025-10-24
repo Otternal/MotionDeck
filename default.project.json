@@ -1,0 +1,23 @@
+{
+  "name": "MotionDeck",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "MotionDeckShared": { "$path": "src/Shared" }
+    },
+
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "MotionDeck": { "$path": "src/Plugin" }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$path": "src/Runtime"
+      }
+    }
+  }
+}
