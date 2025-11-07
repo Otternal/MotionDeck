@@ -1,0 +1,9 @@
+{
+    "name": "MotionDeck",
+    "tree": {
+        "$className": "Folder",
+        "MotionDeck": {
+            "$path": "src/Plugin"
+        }
+    }
+}

@@ -21,4 +21,5 @@ pluginGui.Title = "MotionDeck"
 -- Toggle visibility
 button.Click:Connect(function()
 	pluginGui.Enabled = not pluginGui.Enabled
+	print("Button pressed!")
 end)
