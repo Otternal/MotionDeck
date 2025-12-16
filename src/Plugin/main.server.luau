@@ -18,11 +18,7 @@ local widgetInfo = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Left, true,
 local pluginGui = plugin:CreateDockWidgetPluginGuiAsync("MotionDeckUI", widgetInfo)
 pluginGui.Title = "MotionDeck"
 
--- Toggle visibility
-button.Click:Connect(function()
-	pluginGui.Enabled = not pluginGui.Enabled
-	print("Button pressed!")
-end)
+-- BUTTON GOES HERE
 
 local Selection = game:GetService("Selection")
 
@@ -43,3 +39,56 @@ local function getSelectedModel(): Model?
 	end
 	return nil
 end
+
+local function findMotor(parent: Instance, motorName: string): Motor6D?
+	local m = parent:FindFirstChild(motorName)
+	if m and m:IsA("Motor6D") then
+		return m
+	end
+	return nil
+end
+
+local function getR6MotorsFromCharacter(model: Model): { [string]: Motor6D }
+	local motors: { [string]: Motor6D } = {}
+
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	local torso = model:FindFirstChild("Torso")
+
+	if hrp and hrp:IsA("BasePart") then
+		local rootJoint = findMotor(hrp, "RootJoint")
+		if rootJoint then
+			motors.RootJoint = rootJoint
+		end
+	end
+
+	if torso and torso:IsA("BasePart") then
+		local neck = findMotor(torso, "Neck")
+		if neck then
+			motors.Neck = neck
+		end
+	end
+
+	return motors
+end
+
+-- Toggle visibility
+button.Click:Connect(function()
+	pluginGui.Enabled = not pluginGui.Enabled
+	print("Button pressed!")
+
+	local model = getSelectedModel()
+	if not model then
+		print("No model selected.")
+		return
+	end
+
+	local motors = getR6MotorsFromCharacter(model)
+	print("Selected model:", model:GetFullName())
+	print(
+		"Found motors:",
+		"RootJoint =",
+		motors.RootJoint and motors.RootJoint:GetFullName() or "nil",
+		"Neck =",
+		motors.Neck and motors.Neck:GetFullName() or "nil"
+	)
+end)
