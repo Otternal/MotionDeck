@@ -24,11 +24,22 @@ button.Click:Connect(function()
 	print("Button pressed!")
 end)
 
-local defaultState = ParamDefs.makeDefaultState()
-print("Default param state:")
-print(defaultState)
+local Selection = game:GetService("Selection")
 
-local messy = { NeckPitchAmp = 999, EnablePreview = "yeah" }
-local clean = ParamDefs.sanitiseState(messy :: any)
-print("Sanitised state:")
-print(clean)
+local function getSelectedModel(): Model?
+	local sel = Selection:Get()
+	if #sel == 0 then
+		return nil
+	end
+
+	-- If part is selected inside the rig, find the ancestor model
+	local inst = sel[1]
+	local model = inst:FindFirstAncestorOfClass("Model")
+	if model then
+		return model
+	end
+	if inst:IsA("Model") then
+		return inst
+	end
+	return nil
+end
