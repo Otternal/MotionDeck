@@ -6,6 +6,7 @@ local MathsUtil = require(ReplicatedStorage.MotionDeckShared.MathsUtil)
 local ParamDefs = require(ReplicatedStorage.MotionDeckShared.ParamDefs)
 
 local RunService = game:GetService("RunService")
+local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 
 local toolbar = plugin:CreateToolbar("MotionDeck")
 local button = toolbar:CreateButton("MotionDeck", "Open the MotionDeck interface", "rbxassetid://0")
@@ -26,28 +27,6 @@ local widgetInfo = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Left, true,
 
 local pluginGui = plugin:CreateDockWidgetPluginGuiAsync("MotionDeckUI", widgetInfo)
 pluginGui.Title = "MotionDeck"
-
--- BUTTON GOES HERE
-
-local Selection = game:GetService("Selection")
-
-local function getSelectedModel(): Model?
-	local sel = Selection:Get()
-	if #sel == 0 then
-		return nil
-	end
-
-	-- If part is selected inside the rig, find the ancestor model
-	local inst = sel[1]
-	local model = inst:FindFirstAncestorOfClass("Model")
-	if model then
-		return model
-	end
-	if inst:IsA("Model") then
-		return inst
-	end
-	return nil
-end
 
 local function findMotor(parent: Instance, motorName: string): Motor6D?
 	local m = parent:FindFirstChild(motorName)
@@ -78,6 +57,112 @@ local function getR6MotorsFromCharacter(model: Model): { [string]: Motor6D }
 	end
 
 	return motors
+end
+
+local function getOrCreateAnimator(model: Model): Animator?
+	local humanoidInst = model:FindFirstChildOfClass("Humanoid")
+	if not humanoidInst or not humanoidInst:IsA("Humanoid") then
+		return nil
+	end
+	local humanoid = humanoidInst
+
+	local animatorInst = humanoid:FindFirstChildOfClass("Animator")
+	if animatorInst and animatorInst:IsA("Animator") then
+		return animatorInst
+	end
+
+	local animator = Instance.new("Animator")
+	animator.Parent = humanoid
+	return animator
+end
+
+local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
+	local seq = Instance.new("KeyframeSequence")
+	seq.Name = "MotionDeck_Baked"
+
+	local frameCount = math.floor(duration * fps)
+	local dt = 1 / fps
+
+	for i = 0, frameCount - 1 do
+		local time = i * dt
+
+		-- Read all parameters
+		local neckFreq = state.NeckPitchFreq :: number
+		local neckAmp = state.NeckPitchAmp :: number
+		local neckPhase = state.NeckPitchPhase :: number
+
+		local rootFreq = state.RootRollFreq :: number
+		local rootAmp = state.RootRollAmp :: number
+		local rootPhase = state.RootRollPhase :: number
+
+		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase)
+		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
+
+		-- Make keyframe
+		local kf = Instance.new("Keyframe")
+		kf.Time = time
+		kf.Parent = seq
+
+		-- Root pose
+		local hrpPose = Instance.new("Pose")
+		hrpPose.Name = "HumanoidRootPart"
+		hrpPose.CFrame = CFrame.identity
+		hrpPose.Parent = kf
+
+		-- Torso pose
+		local torsoPose = Instance.new("Pose")
+		torsoPose.Name = "Torso"
+		torsoPose.CFrame = CFrame.Angles(0, 0, rootRoll)
+		torsoPose.Parent = hrpPose
+
+		-- Head pose
+		local headPose = Instance.new("Pose")
+		headPose.Name = "Head"
+		headPose.CFrame = CFrame.Angles(neckPitch, 0, 0)
+		headPose.Parent = torsoPose
+	end
+
+	return seq
+end
+
+local currentTrack: AnimationTrack? = nil
+
+local function playBakedOnRig(model: Model, seq: KeyframeSequence)
+	local animator = getOrCreateAnimator(model)
+	if not animator then
+		warn("No Humanoid or Animator found")
+		return
+	end
+
+	-- Create temporary animation id
+	local animId: string
+	local ok, result = pcall(function()
+		return KeyframeSequenceProvider:RegisterActiveKeyframeSequence(seq)
+	end)
+
+	if ok then
+		animId = result
+	else
+		-- Fallback for Run / non-solo modes
+		animId = KeyframeSequenceProvider:RegisterKeyframeSequence(seq)
+	end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = animId
+
+	-- Stop previous tracks
+	if currentTrack then
+		currentTrack:Stop(0)
+		currentTrack:Destroy()
+		currentTrack = nil
+	end
+
+	local track = animator:LoadAnimation(anim)
+	currentTrack = track
+
+	track.Priority = Enum.AnimationPriority.Action
+	track.Looped = true
+	track:Play(0)
 end
 
 local function resetPreviewTransforms()
@@ -147,6 +232,37 @@ local function startPreview(motors: { [string]: Motor6D })
 	end)
 end
 
+local Selection = game:GetService("Selection")
+
+local function getSelectedModel(): Model?
+	local sel = Selection:Get()
+	if #sel == 0 then
+		return nil
+	end
+
+	-- If part is selected inside the rig, find the ancestor model
+	local inst = sel[1]
+	local model = inst:FindFirstAncestorOfClass("Model")
+	if model then
+		return model
+	end
+	if inst:IsA("Model") then
+		return inst
+	end
+	return nil
+end
+
+local lastSelectedModel: Model? = nil
+
+Selection.SelectionChanged:Connect(function()
+	local current = getSelectedModel()
+	if current ~= lastSelectedModel then
+		stopPreview()
+		lastSelectedModel = current
+		print("Selection changed so preview has been stopped")
+	end
+end)
+
 -- Toggle visibility
 button.Click:Connect(function()
 	pluginGui.Enabled = not pluginGui.Enabled
@@ -157,6 +273,7 @@ button.Click:Connect(function()
 		print("No model selected.")
 		return
 	end
+	lastSelectedModel = model
 
 	local motors = getR6MotorsFromCharacter(model)
 	print("Selected model:", model:GetFullName())
@@ -179,9 +296,17 @@ button.Click:Connect(function()
 	end
 
 	if motors.RootJoint or motors.Neck then
-		startPreview(motors)
-		print("Preview started")
-		print(t)
+		--startPreview(motors)
+		--print("Preview started")
+
+		-- DEMO: bake and play immediately when rig is selected
+		-- TODO: change into UI button
+		stopPreview()
+		paramState = ParamDefs.sanitiseState(paramState)
+
+		local seq = bakeKeyframeSequence(paramState, 6.0, 30)
+		playBakedOnRig(model, seq)
+		print("Baked and playing")
 	else
 		stopPreview()
 		print("No valid R6 motors found")
