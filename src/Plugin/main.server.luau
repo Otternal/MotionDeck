@@ -526,3 +526,4 @@ end)
 -----------------------------
 setTarget(nil)
 setStatus("Idle")
+buildParamSliders(paramsScroll)
