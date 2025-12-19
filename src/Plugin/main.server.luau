@@ -399,6 +399,48 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 			current = ndef.default
 		end
 		setValue(current :: number)
+
+		-- Drag logic (working??)
+		local dragging = false
+
+		local function valueFromMouseX(mouseX: number): number
+			local x0 = bar.AbsolutePosition.X
+			local w = bar.AbsoluteSize.X
+
+			if w <= 0 then
+				return ndef.default
+			end
+			local alpha = math.clamp((mouseX - x0) / w, 0, 1)
+			return ndef.min + alpha * (ndef.max - ndef.min)
+		end
+
+		table.insert(
+			sliderConnections,
+			bar.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging = true
+					setValue(valueFromMouseX(input.Position.X))
+				end
+			end)
+		)
+
+		table.insert(
+			sliderConnections,
+			UserInputService.InputChanged:Connect(function(input)
+				if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+					setValue(valueFromMouseX(input.Position.X))
+				end
+			end)
+		)
+
+		table.insert(
+			sliderConnections,
+			UserInputService.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging = false
+				end
+			end)
+		)
 	end
 end
 
