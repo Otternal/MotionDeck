@@ -83,43 +83,42 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local frameCount = math.floor(duration * fps)
 	local dt = 1 / fps
 
-	for i = 0, frameCount - 1 do
-		local time = i * dt
+	local neckFreq = state.NeckPitchFreq :: number
+	local neckAmp = state.NeckPitchAmp :: number
+	local neckPhase = state.NeckPitchPhase :: number
 
-		-- Read all parameters
-		local neckFreq = state.NeckPitchFreq :: number
-		local neckAmp = state.NeckPitchAmp :: number
-		local neckPhase = state.NeckPitchPhase :: number
+	local rootFreq = state.RootRollFreq :: number
+	local rootAmp = state.RootRollAmp :: number
+	local rootPhase = state.RootRollPhase :: number
 
-		local rootFreq = state.RootRollFreq :: number
-		local rootAmp = state.RootRollAmp :: number
-		local rootPhase = state.RootRollPhase :: number
-
-		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase)
-		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
-
-		-- Make keyframe
+	local function addKeyframe(time: number, neckPitch: number, rootRoll: number)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
 
-		-- Root pose
 		local hrpPose = Instance.new("Pose")
 		hrpPose.Name = "HumanoidRootPart"
 		hrpPose.CFrame = CFrame.identity
 		hrpPose.Parent = kf
 
-		-- Torso pose
 		local torsoPose = Instance.new("Pose")
 		torsoPose.Name = "Torso"
 		torsoPose.CFrame = CFrame.Angles(0, 0, rootRoll)
 		torsoPose.Parent = hrpPose
 
-		-- Head pose
 		local headPose = Instance.new("Pose")
 		headPose.Name = "Head"
 		headPose.CFrame = CFrame.Angles(neckPitch, 0, 0)
 		headPose.Parent = torsoPose
+	end
+
+	for i = 0, frameCount - 1 do
+		local time = i * dt
+
+		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase)
+		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
+
+		addKeyframe(time, neckPitch, rootRoll)
 	end
 
 	return seq
@@ -162,7 +161,7 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 
 	track.Priority = Enum.AnimationPriority.Action
 	track.Looped = true
-	track:Play(0)
+	track:Play(0.1)
 end
 
 local function resetPreviewTransforms()
@@ -304,7 +303,7 @@ button.Click:Connect(function()
 		stopPreview()
 		paramState = ParamDefs.sanitiseState(paramState)
 
-		local seq = bakeKeyframeSequence(paramState, 6.0, 30)
+		local seq = bakeKeyframeSequence(paramState, 4.0, 30)
 		playBakedOnRig(model, seq)
 		print("Baked and playing")
 	else
