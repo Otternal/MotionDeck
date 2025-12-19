@@ -121,6 +121,8 @@ local function resetPreviewTransforms()
 	end
 end
 
+local previewConn: RBXScriptConnection? = nil
+
 local function stopPreview()
 	previewRunning = false
 	previewTask = nil
@@ -135,39 +137,30 @@ local function startPreview(motors: { [string]: Motor6D })
 	stopPreview()
 
 	activeMotors = motors
-	previewRunning = true
 	t = 0
 
 	local last = os.clock()
 
-	previewTask = task.spawn(function()
-		while previewRunning do
-			local now = os.clock()
-			local dt = now - last
-			last = now
+	previewConn = RunService.Heartbeat:Connect(function(dt: number)
+		local timeSpeed = paramState.TimeSpeed :: number
+		t += dt * timeSpeed
 
-			local timeSpeed = paramState.TimeSpeed :: number
-			t += dt * timeSpeed
+		local neckFreq = paramState.NeckPitchFreq :: number
+		local neckAmp = paramState.NeckPitchAmp :: number
+		local neckPhase = paramState.NeckPitchPhase :: number
 
-			local neckFreq = paramState.NeckPitchFreq :: number
-			local neckAmp = paramState.NeckPitchAmp :: number
-			local neckPhase = paramState.NeckPitchPhase :: number
+		local rootFreq = paramState.RootRollFreq :: number
+		local rootAmp = paramState.RootRollAmp :: number
+		local rootPhase = paramState.RootRollPhase :: number
 
-			local rootFreq = paramState.RootRollFreq :: number
-			local rootAmp = paramState.RootRollAmp :: number
-			local rootPhase = paramState.RootRollPhase :: number
+		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase)
+		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
 
-			local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase)
-			local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
-
-			if activeMotors.Neck then
-				activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
-			end
-			if activeMotors.RootJoint then
-				activeMotors.RootJoint.Transform = CFrame.Angles(0, 0, rootRoll)
-			end
-
-			task.wait()
+		if activeMotors.Neck then
+			activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
+		end
+		if activeMotors.RootJoint then
+			activeMotors.RootJoint.Transform = CFrame.Angles(0, 0, rootRoll)
 		end
 	end)
 end
