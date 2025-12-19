@@ -44,6 +44,27 @@ ui.Parent = pluginGui
 ui.Size = UDim2.fromScale(1, 1)
 ui.Position = UDim2.fromScale(0, 0)
 
+-- Frames
+local rigFrame = ui:WaitForChild("RigFrame") :: Frame
+local sliderFrame = ui:WaitForChild("SliderFrame") :: Frame
+local statusFrame = ui:WaitForChild("StatusFrame") :: Frame
+local previewFrame = ui:WaitForChild("PreviewFrame")
+
+-- Rig section
+local targetLabel = rigFrame:WaitForChild("TargetLabel") :: TextLabel
+local useSelectedBtn = rigFrame:WaitForChild("RigButton") :: TextButton
+
+-- Sliders section
+local paramsScroll = sliderFrame:WaitForChild("ScrollingFrame") :: ScrollingFrame
+
+-- Status section
+local statusLabel = statusFrame:WaitForChild("StateLabel") :: TextLabel
+
+-- Preview section
+local startPreviewBtn = previewFrame:WaitForChild("StartPreviewButton") :: TextButton
+local stopPreviewBtn = previewFrame:WaitForChild("StopPreviewButton") :: TextButton
+local bakePlayBtn = previewFrame:WaitForChild("BakePlayButton") :: TextButton
+
 -----------------------------
 -- STATE --
 -----------------------------
