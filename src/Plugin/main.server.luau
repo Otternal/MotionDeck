@@ -180,8 +180,6 @@ local function stopPreview()
 	t = 0
 end
 
--- NOTE: live preview loop exists but is intentionally not called in the current demo build
--- TODO: renable live preview in UI
 local function startPreview(motors: { [string]: Motor6D })
 	stopPreview()
 
@@ -311,9 +309,6 @@ local function setTarget(model: Model?)
 	end
 end
 
-setTarget(nil)
-setStatus("Idle")
-
 -----------------------------
 -- HANDLERS --
 -----------------------------
@@ -390,3 +385,9 @@ end)
 button.Click:Connect(function()
 	pluginGui.Enabled = not pluginGui.Enabled
 end)
+
+-----------------------------
+-- MAIN --
+-----------------------------
+setTarget(nil)
+setStatus("Idle")
