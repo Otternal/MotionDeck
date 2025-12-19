@@ -314,6 +314,17 @@ end
 setTarget(nil)
 setStatus("Idle")
 
+-----------------------------
+-- HANDLERS --
+-----------------------------
+Selection.SelectionChanged:Connect(function()
+	local current = getSelectedModel()
+	if current ~= lastSelectedModel then
+		stopPreview()
+		lastSelectedModel = current
+	end
+end)
+
 useSelectedBtn.MouseButton1Click:Connect(function()
 	local model = getSelectedModel()
 	if not model then
@@ -376,62 +387,6 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 	setStatus("Playing baked")
 end)
 
------------------------------
--- HANDLERS --
------------------------------
-Selection.SelectionChanged:Connect(function()
-	local current = getSelectedModel()
-	if current ~= lastSelectedModel then
-		stopPreview()
-		lastSelectedModel = current
-		print("Selection changed: preview stopped + transforms reset")
-	end
-end)
-
 button.Click:Connect(function()
 	pluginGui.Enabled = not pluginGui.Enabled
-	-- Toolbar button toggles UI
-	-- pluginGui.Enabled = not pluginGui.Enabled
-	-- print("Button pressed!")
-
-	-- local model = getSelectedModel()
-	-- if not model then
-	-- 	print("No model selected.")
-	-- 	return
-	-- end
-	-- lastSelectedModel = model
-
-	-- Validate state
-	-- paramState = ParamDefs.sanitiseState(paramState)
-
-	-- local motors = getR6MotorsFromCharacter(model)
-	-- For testing purposes
-	-- print("Selected model:", model:GetFullName())
-	-- print(
-	-- 	"Found motors:",
-	-- 	"RootJoint =",
-	-- 	motors.RootJoint and motors.RootJoint:GetFullName() or "nil",
-	-- 	"Neck =",
-	-- 	motors.Neck and motors.Neck:GetFullName() or "nil"
-	-- )
-
-	-- local enable = paramState.EnablePreview :: boolean
-	-- if not enable then
-	-- 	stopPreview()
-	-- 	print("Preview disabled")
-	-- 	return
-	-- end
-
-	-- if not (motors.RootJoint or motors.Neck) then
-	-- 	stopPreview()
-	-- 	print("No valid R6 motors found")
-	-- 	return
-	-- end
-
-	-- FOR TESTING PURPOSES! bake & play immediately.
-	-- TODO: use UI
-	-- stopPreview()
-	-- local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
-	-- playBakedOnRig(model, seq)
-	-- print("Baked and playing")
 end)
