@@ -29,6 +29,22 @@ local pluginGui = plugin:CreateDockWidgetPluginGuiAsync("MotionDeckUI", widgetIn
 pluginGui.Title = "MotionDeck"
 
 -----------------------------
+-- UI MOUNT --
+-----------------------------
+local uiFolder = script.Parent:WaitForChild("UI")
+local uiTemplateInst = uiFolder:WaitForChild("MainUI")
+
+if not uiTemplateInst:IsA("Frame") then
+	error("MotionDeck: MainUI must be a Frame")
+end
+local uiTemplate = uiTemplateInst :: Frame
+
+local ui = uiTemplate:Clone()
+ui.Parent = pluginGui
+ui.Size = UDim2.fromScale(1, 1)
+ui.Position = UDim2.fromScale(0, 0)
+
+-----------------------------
 -- STATE --
 -----------------------------
 local paramState: ParamDefs.ParamState = ParamDefs.makeDefaultState()
