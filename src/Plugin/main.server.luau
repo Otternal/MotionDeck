@@ -1,39 +1,75 @@
 --!strict
 -- MotionDeck main
+-- By Theodore McKenzie
 
+-----------------------------
+-- SERVICES --
+-----------------------------
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
+local Selection = game:GetService("Selection")
+
+-----------------------------
+-- MODULES --
+-----------------------------
 local MathsUtil = require(ReplicatedStorage.MotionDeckShared.MathsUtil)
 local ParamDefs = require(ReplicatedStorage.MotionDeckShared.ParamDefs)
 
-local RunService = game:GetService("RunService")
-local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
-
+-----------------------------
+-- PLUGIN SETUP --
+-----------------------------
 local toolbar = plugin:CreateToolbar("MotionDeck")
 local button = toolbar:CreateButton("MotionDeck", "Open the MotionDeck interface", "rbxassetid://0")
 button.ClickableWhenViewportHidden = true
 
-local paramState = ParamDefs.makeDefaultState()
-local activeMotors: { [string]: Motor6D } = {}
-local previewConn: RBXScriptConnection? = nil
-local previewTask: thread? = nil
-local previewRunning = false
-local t = 0
-
--- For testing purposes to see if the plugin has loaded
-print("MotionDeck plugin loaded successfully")
-
--- Plugin widget
 local widgetInfo = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Left, true, true, 400, 300, 200, 200)
 
 local pluginGui = plugin:CreateDockWidgetPluginGuiAsync("MotionDeckUI", widgetInfo)
 pluginGui.Title = "MotionDeck"
 
+-----------------------------
+-- STATE --
+-----------------------------
+local paramState: ParamDefs.ParamState = ParamDefs.makeDefaultState()
+
+local activeMotors: { [string]: Motor6D } = {}
+local previewRunning = false
+local previewTask: thread? = nil
+local t = 0
+
+local lastSelectedModel: Model? = nil
+local currentTrack: AnimationTrack? = nil
+
+-- Demo bake settings (Option 1 loop-friendly)
+local BAKE_DURATION_SECONDS = 4.0
+local BAKE_FPS = 30
+
+print("MotionDeck plugin loaded successfully")
+
+-----------------------------
+-- PRIVATE FUNCTIONS --
+-----------------------------
 local function findMotor(parent: Instance, motorName: string): Motor6D?
 	local m = parent:FindFirstChild(motorName)
 	if m and m:IsA("Motor6D") then
 		return m
 	end
 	return nil
+end
+
+local function getSelectedModel(): Model?
+	local sel = Selection:Get()
+	if #sel == 0 then
+		return nil
+	end
+
+	local inst = sel[1]
+	if inst:IsA("Model") then
+		return inst
+	end
+
+	return inst:FindFirstAncestorOfClass("Model")
 end
 
 local function getR6MotorsFromCharacter(model: Model): { [string]: Motor6D }
@@ -76,6 +112,66 @@ local function getOrCreateAnimator(model: Model): Animator?
 	return animator
 end
 
+local function resetPreviewTransforms()
+	if activeMotors.Neck then
+		activeMotors.Neck.Transform = CFrame.identity
+	end
+	if activeMotors.RootJoint then
+		activeMotors.RootJoint.Transform = CFrame.identity
+	end
+end
+
+local function stopPreview()
+	previewRunning = false
+	previewTask = nil
+
+	resetPreviewTransforms()
+	t = 0
+end
+
+-- NOTE: live preview loop exists but is intentionally not called in the current demo build
+-- TODO: renable live preview in UI
+local function startPreview(motors: { [string]: Motor6D })
+	stopPreview()
+
+	activeMotors = motors
+	previewRunning = true
+	t = 0
+
+	local last = os.clock()
+
+	previewTask = task.spawn(function()
+		while previewRunning do
+			local now = os.clock()
+			local dt = now - last
+			last = now
+
+			local timeSpeed = paramState.TimeSpeed :: number
+			t += dt * timeSpeed
+
+			local neckFreq = paramState.NeckPitchFreq :: number
+			local neckAmp = paramState.NeckPitchAmp :: number
+			local neckPhase = paramState.NeckPitchPhase :: number
+
+			local rootFreq = paramState.RootRollFreq :: number
+			local rootAmp = paramState.RootRollAmp :: number
+			local rootPhase = paramState.RootRollPhase :: number
+
+			local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase)
+			local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
+
+			if activeMotors.Neck then
+				activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
+			end
+			if activeMotors.RootJoint then
+				activeMotors.RootJoint.Transform = CFrame.Angles(0, 0, rootRoll)
+			end
+
+			task.wait()
+		end
+	end)
+end
+
 local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
 	local seq = Instance.new("KeyframeSequence")
 	seq.Name = "MotionDeck_Baked"
@@ -83,6 +179,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local frameCount = math.floor(duration * fps)
 	local dt = 1 / fps
 
+	-- Read params
 	local neckFreq = state.NeckPitchFreq :: number
 	local neckAmp = state.NeckPitchAmp :: number
 	local neckPhase = state.NeckPitchPhase :: number
@@ -96,6 +193,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		kf.Time = time
 		kf.Parent = seq
 
+		-- Pose hierarchy
 		local hrpPose = Instance.new("Pose")
 		hrpPose.Name = "HumanoidRootPart"
 		hrpPose.CFrame = CFrame.identity
@@ -124,16 +222,14 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	return seq
 end
 
-local currentTrack: AnimationTrack? = nil
-
 local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	local animator = getOrCreateAnimator(model)
 	if not animator then
-		warn("No Humanoid or Animator found")
+		warn("MotionDeck: No Humanoid/Animator found; cannot play baked animation.")
 		return
 	end
 
-	-- Create temporary animation id
+	-- Register a local test animation id
 	local animId: string
 	local ok, result = pcall(function()
 		return KeyframeSequenceProvider:RegisterActiveKeyframeSequence(seq)
@@ -142,14 +238,13 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	if ok then
 		animId = result
 	else
-		-- Fallback for Run / non-solo modes
 		animId = KeyframeSequenceProvider:RegisterKeyframeSequence(seq)
 	end
 
 	local anim = Instance.new("Animation")
 	anim.AnimationId = animId
 
-	-- Stop previous tracks
+	-- Stop previous track
 	if currentTrack then
 		currentTrack:Stop(0)
 		currentTrack:Destroy()
@@ -164,106 +259,20 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	track:Play(0.1)
 end
 
-local function resetPreviewTransforms()
-	if activeMotors.Neck then
-		activeMotors.Neck.Transform = CFrame.identity
-	end
-	if activeMotors.RootJoint then
-		activeMotors.RootJoint.Transform = CFrame.identity
-	end
-end
-
-local function stopPreview()
-	previewRunning = false
-
-	if previewConn then
-		previewConn:Disconnect()
-		previewConn = nil
-	end
-
-	previewTask = nil
-
-	resetPreviewTransforms()
-	t = 0
-end
-
-local function startPreview(motors: { [string]: Motor6D })
-	stopPreview() -- Prevents multiple loops from stacking
-
-	activeMotors = motors
-	t = 0
-	previewRunning = true
-
-	local last = os.clock()
-
-	previewTask = task.spawn(function()
-		while previewRunning do
-			local now = os.clock()
-			local dt = now - last
-			last = now
-
-			local timeSpeed = paramState.TimeSpeed :: number
-			t += dt * timeSpeed
-
-			-- Read parameters
-			local neckFreq = paramState.NeckPitchFreq :: number
-			local neckAmp = paramState.NeckPitchAmp :: number
-			local neckPhase = paramState.NeckPitchPhase :: number
-
-			local rootFreq = paramState.RootRollFreq :: number
-			local rootAmp = paramState.RootRollAmp :: number
-			local rootPhase = paramState.RootRollPhase :: number
-
-			-- Calculate procedural values
-			local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase)
-			local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
-
-			-- Apply transforms
-			if activeMotors.Neck then
-				activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
-			end
-			if activeMotors.RootJoint then
-				activeMotors.RootJoint.Transform = CFrame.Angles(0, 0, rootRoll)
-			end
-
-			task.wait()
-		end
-	end)
-end
-
-local Selection = game:GetService("Selection")
-
-local function getSelectedModel(): Model?
-	local sel = Selection:Get()
-	if #sel == 0 then
-		return nil
-	end
-
-	-- If part is selected inside the rig, find the ancestor model
-	local inst = sel[1]
-	local model = inst:FindFirstAncestorOfClass("Model")
-	if model then
-		return model
-	end
-	if inst:IsA("Model") then
-		return inst
-	end
-	return nil
-end
-
-local lastSelectedModel: Model? = nil
-
+-----------------------------
+-- HANDLERS --
+-----------------------------
 Selection.SelectionChanged:Connect(function()
 	local current = getSelectedModel()
 	if current ~= lastSelectedModel then
 		stopPreview()
 		lastSelectedModel = current
-		print("Selection changed so preview has been stopped")
+		print("Selection changed: preview stopped + transforms reset")
 	end
 end)
 
--- Toggle visibility
 button.Click:Connect(function()
+	-- Toolbar button toggles UI
 	pluginGui.Enabled = not pluginGui.Enabled
 	print("Button pressed!")
 
@@ -273,6 +282,9 @@ button.Click:Connect(function()
 		return
 	end
 	lastSelectedModel = model
+
+	-- Validate state
+	paramState = ParamDefs.sanitiseState(paramState)
 
 	local motors = getR6MotorsFromCharacter(model)
 	print("Selected model:", model:GetFullName())
@@ -284,9 +296,6 @@ button.Click:Connect(function()
 		motors.Neck and motors.Neck:GetFullName() or "nil"
 	)
 
-	-- Update state from default values
-	paramState = ParamDefs.sanitiseState(paramState)
-
 	local enable = paramState.EnablePreview :: boolean
 	if not enable then
 		stopPreview()
@@ -294,20 +303,16 @@ button.Click:Connect(function()
 		return
 	end
 
-	if motors.RootJoint or motors.Neck then
-		--startPreview(motors)
-		--print("Preview started")
-
-		-- DEMO: bake and play immediately when rig is selected
-		-- TODO: change into UI button
-		stopPreview()
-		paramState = ParamDefs.sanitiseState(paramState)
-
-		local seq = bakeKeyframeSequence(paramState, 4.0, 30)
-		playBakedOnRig(model, seq)
-		print("Baked and playing")
-	else
+	if not (motors.RootJoint or motors.Neck) then
 		stopPreview()
 		print("No valid R6 motors found")
+		return
 	end
+
+	-- FOR TESTING PURPOSES! bake & play immediately.
+	-- TODO: use UI
+	stopPreview()
+	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
+	playBakedOnRig(model, seq)
+	print("Baked and playing")
 end)
