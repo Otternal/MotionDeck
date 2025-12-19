@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 local Selection = game:GetService("Selection")
+local UserInputService = game:GetService("UserInputService")
 
 -----------------------------
 -- MODULES --
@@ -35,6 +36,8 @@ local uiFolder = script.Parent:WaitForChild("UI")
 local uiTemplateInst = uiFolder:WaitForChild("MainUI")
 
 local activeModel: Model? = nil
+
+local sliderConnections: { RBXScriptConnection } = {}
 
 if not uiTemplateInst:IsA("Frame") then
 	error("MotionDeck: MainUI must be a Frame")
@@ -306,6 +309,96 @@ local function setTarget(model: Model?)
 		targetLabel.Text = "Target: " .. model.Name
 	else
 		targetLabel.Text = "Target: None"
+	end
+end
+
+local function roundToStep(x: number, step: number): number
+	return math.floor((x / step) + 0.5) * step
+end
+
+local function formatValue(x: number, unit: string?): string
+	local s = string.format("%.3f", x)
+	if unit and unit ~= "" then
+		return s .. " " .. unit
+	end
+	return s
+end
+
+local function disconnectSliders()
+	for _, c in sliderConnections do
+		c:Disconnect()
+	end
+	table.clear(sliderConnections)
+end
+
+local function buildParamSliders(paramsScroll: ScrollingFrame)
+	disconnectSliders()
+
+	-- Template
+	local templateInst = paramsScroll:WaitForChild("SliderRowTemplate")
+	if not templateInst:IsA("Frame") then
+		error("MotionDeck: SliderRowTemplate must be a Frame")
+	end
+	local template = templateInst :: Frame
+	template.Visible = false
+
+	-- Clear previously created rows
+	for _, child in paramsScroll:GetChildren() do
+		if child:IsA("Frame") and child ~= template then
+			child:Destroy()
+		end
+	end
+
+	-- Making sure paramState is valid
+	paramState = ParamDefs.sanitiseState(paramState)
+
+	for _, id in ParamDefs.getOrderedParamIds() do
+		local def = ParamDefs.Defs[id]
+		if def.kind ~= "number" then
+			continue
+		end
+		local ndef = def :: ParamDefs.ParamNumberDef
+
+		-- Clone row template
+		local row = template:Clone()
+		row.Name = id
+		row.Visible = true
+		row.Parent = paramsScroll
+
+		-- Get all UI elements
+		local paramLabel = row:WaitForChild("ParamLabel") :: TextLabel
+		local valueLabel = row:WaitForChild("ValueLabel") :: TextLabel
+		local bar = row:WaitForChild("Bar") :: Frame
+		local knob = bar:WaitForChild("Knob") :: Frame
+
+		paramLabel.Text = ndef.label
+
+		local step = ndef.step or 0.01
+
+		local function setValue(newValue: number)
+			newValue = math.clamp(newValue, ndef.min, ndef.max)
+			newValue = roundToStep(newValue, step)
+			newValue = math.clamp(newValue, ndef.min, ndef.max)
+
+			paramState[id] = newValue
+			valueLabel.Text = formatValue(newValue, ndef.unit)
+
+			local alpha = 0
+			if ndef.max > ndef.min then
+				alpha = (newValue - ndef.min) / (ndef.max - ndef.min)
+			end
+
+			-- Centre knob
+			local knobHalf = knob.AbsoluteSize.X * 0.5
+			knob.Position = UDim2.new(alpha, -knobHalf, 0, 0)
+		end
+
+		-- Initiate from state
+		local current = paramState[id]
+		if typeof(current) ~= "number" then
+			current = ndef.default
+		end
+		setValue(current :: number)
 	end
 end
 
