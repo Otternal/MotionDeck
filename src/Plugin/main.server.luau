@@ -34,14 +34,13 @@ pluginGui.Title = "MotionDeck"
 local paramState: ParamDefs.ParamState = ParamDefs.makeDefaultState()
 
 local activeMotors: { [string]: Motor6D } = {}
-local previewRunning = false
-local previewTask: thread? = nil
 local t = 0
 
+local activeModel: Model? = nil
 local lastSelectedModel: Model? = nil
 local currentTrack: AnimationTrack? = nil
 
--- Demo bake settings (Option 1 loop-friendly)
+-- Demo bake settings
 local BAKE_DURATION_SECONDS = 4.0
 local BAKE_FPS = 30
 
@@ -124,8 +123,10 @@ end
 local previewConn: RBXScriptConnection? = nil
 
 local function stopPreview()
-	previewRunning = false
-	previewTask = nil
+	if previewConn then
+		previewConn:Disconnect()
+		previewConn = nil
+	end
 
 	resetPreviewTransforms()
 	t = 0
@@ -137,9 +138,6 @@ local function startPreview(motors: { [string]: Motor6D })
 	stopPreview()
 
 	activeMotors = motors
-	t = 0
-
-	local last = os.clock()
 
 	previewConn = RunService.Heartbeat:Connect(function(dt: number)
 		local timeSpeed = paramState.TimeSpeed :: number
@@ -218,17 +216,17 @@ end
 local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	local animator = getOrCreateAnimator(model)
 	if not animator then
-		warn("MotionDeck: No Humanoid/Animator found; cannot play baked animation.")
+		warn("MotionDeck: No Humanoid/Animator found!")
 		return
 	end
 
 	-- Register a local test animation id
 	local animId: string
-	local ok, result = pcall(function()
+	local success, result = pcall(function()
 		return KeyframeSequenceProvider:RegisterActiveKeyframeSequence(seq)
 	end)
 
-	if ok then
+	if success then
 		animId = result
 	else
 		animId = KeyframeSequenceProvider:RegisterKeyframeSequence(seq)
@@ -265,47 +263,49 @@ Selection.SelectionChanged:Connect(function()
 end)
 
 button.Click:Connect(function()
-	-- Toolbar button toggles UI
 	pluginGui.Enabled = not pluginGui.Enabled
-	print("Button pressed!")
+	-- Toolbar button toggles UI
+	-- pluginGui.Enabled = not pluginGui.Enabled
+	-- print("Button pressed!")
 
-	local model = getSelectedModel()
-	if not model then
-		print("No model selected.")
-		return
-	end
-	lastSelectedModel = model
+	-- local model = getSelectedModel()
+	-- if not model then
+	-- 	print("No model selected.")
+	-- 	return
+	-- end
+	-- lastSelectedModel = model
 
 	-- Validate state
-	paramState = ParamDefs.sanitiseState(paramState)
+	-- paramState = ParamDefs.sanitiseState(paramState)
 
-	local motors = getR6MotorsFromCharacter(model)
-	print("Selected model:", model:GetFullName())
-	print(
-		"Found motors:",
-		"RootJoint =",
-		motors.RootJoint and motors.RootJoint:GetFullName() or "nil",
-		"Neck =",
-		motors.Neck and motors.Neck:GetFullName() or "nil"
-	)
+	-- local motors = getR6MotorsFromCharacter(model)
+	-- For testing purposes
+	-- print("Selected model:", model:GetFullName())
+	-- print(
+	-- 	"Found motors:",
+	-- 	"RootJoint =",
+	-- 	motors.RootJoint and motors.RootJoint:GetFullName() or "nil",
+	-- 	"Neck =",
+	-- 	motors.Neck and motors.Neck:GetFullName() or "nil"
+	-- )
 
-	local enable = paramState.EnablePreview :: boolean
-	if not enable then
-		stopPreview()
-		print("Preview disabled")
-		return
-	end
+	-- local enable = paramState.EnablePreview :: boolean
+	-- if not enable then
+	-- 	stopPreview()
+	-- 	print("Preview disabled")
+	-- 	return
+	-- end
 
-	if not (motors.RootJoint or motors.Neck) then
-		stopPreview()
-		print("No valid R6 motors found")
-		return
-	end
+	-- if not (motors.RootJoint or motors.Neck) then
+	-- 	stopPreview()
+	-- 	print("No valid R6 motors found")
+	-- 	return
+	-- end
 
 	-- FOR TESTING PURPOSES! bake & play immediately.
 	-- TODO: use UI
-	stopPreview()
-	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
-	playBakedOnRig(model, seq)
-	print("Baked and playing")
+	-- stopPreview()
+	-- local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
+	-- playBakedOnRig(model, seq)
+	-- print("Baked and playing")
 end)
