@@ -34,6 +34,8 @@ pluginGui.Title = "MotionDeck"
 local uiFolder = script.Parent:WaitForChild("UI")
 local uiTemplateInst = uiFolder:WaitForChild("MainUI")
 
+local activeModel: Model? = nil
+
 if not uiTemplateInst:IsA("Frame") then
 	error("MotionDeck: MainUI must be a Frame")
 end
@@ -44,11 +46,21 @@ ui.Parent = pluginGui
 ui.Size = UDim2.fromScale(1, 1)
 ui.Position = UDim2.fromScale(0, 0)
 
+local function getRequiredFrame(parent: Instance, frameName: string): Frame
+	local inst = parent:WaitForChild(frameName)
+
+	if not inst:IsA("Frame") then
+		error(`MotionDeck: {frameName} exists but is not a Frame`)
+	end
+
+	return inst
+end
+
 -- Frames
-local rigFrame = ui:WaitForChild("RigFrame") :: Frame
-local sliderFrame = ui:WaitForChild("SliderFrame") :: Frame
-local statusFrame = ui:WaitForChild("StatusFrame") :: Frame
-local previewFrame = ui:WaitForChild("PreviewFrame")
+local rigFrame = getRequiredFrame(ui, "RigFrame")
+local sliderFrame = getRequiredFrame(ui, "SliderFrame")
+local statusFrame = getRequiredFrame(ui, "StatusFrame")
+local previewFrame = getRequiredFrame(ui, "PreviewFrame")
 
 -- Rig section
 local targetLabel = rigFrame:WaitForChild("TargetLabel") :: TextLabel
@@ -63,7 +75,7 @@ local statusLabel = statusFrame:WaitForChild("StateLabel") :: TextLabel
 -- Preview section
 local startPreviewBtn = previewFrame:WaitForChild("StartPreviewButton") :: TextButton
 local stopPreviewBtn = previewFrame:WaitForChild("StopPreviewButton") :: TextButton
-local bakePlayBtn = previewFrame:WaitForChild("BakePlayButton") :: TextButton
+local bakePlayBtn = previewFrame:WaitForChild("BakeButton") :: TextButton
 
 -----------------------------
 -- STATE --
@@ -73,7 +85,6 @@ local paramState: ParamDefs.ParamState = ParamDefs.makeDefaultState()
 local activeMotors: { [string]: Motor6D } = {}
 local t = 0
 
-local activeModel: Model? = nil
 local lastSelectedModel: Model? = nil
 local currentTrack: AnimationTrack? = nil
 
@@ -286,6 +297,84 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	track.Looped = true
 	track:Play(0.1)
 end
+
+local function setStatus(text: string)
+	statusLabel.Text = "Status: " .. text
+end
+
+local function setTarget(model: Model?)
+	activeModel = model
+	if model then
+		targetLabel.Text = "Target: " .. model.Name
+	else
+		targetLabel.Text = "Target: None"
+	end
+end
+
+setTarget(nil)
+setStatus("Idle")
+
+useSelectedBtn.MouseButton1Click:Connect(function()
+	local model = getSelectedModel()
+	if not model then
+		setTarget(nil)
+		setStatus("No selection")
+		return
+	end
+
+	local motors = getR6MotorsFromCharacter(model)
+	if not (motors.RootJoint or motors.Neck) then
+		setTarget(nil)
+		setStatus("Selection is not a valid R6 rig")
+		return
+	end
+
+	setTarget(model)
+	setStatus("Target set")
+end)
+
+startPreviewBtn.MouseButton1Click:Connect(function()
+	if not activeModel then
+		setStatus("No target set")
+		return
+	end
+
+	paramState = ParamDefs.sanitiseState(paramState)
+	if not (paramState.EnablePreview :: boolean) then
+		setStatus("Preview disabled")
+		return
+	end
+
+	local motors = getR6MotorsFromCharacter(activeModel)
+	if not (motors.RootJoint or motors.Neck) then
+		setTarget(nil)
+		setStatus("Target invalid")
+		return
+	end
+
+	startPreview(motors)
+	setStatus("Previewing")
+end)
+
+stopPreviewBtn.MouseButton1Click:Connect(function()
+	stopPreview()
+	setStatus("Stopped")
+end)
+
+bakePlayBtn.MouseButton1Click:Connect(function()
+	if not activeModel then
+		setStatus("No target set")
+		return
+	end
+
+	paramState = ParamDefs.sanitiseState(paramState)
+	stopPreview()
+
+	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
+	playBakedOnRig(activeModel, seq)
+
+	setStatus("Playing baked")
+end)
 
 -----------------------------
 -- HANDLERS --
