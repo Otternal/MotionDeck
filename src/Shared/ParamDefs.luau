@@ -1,5 +1,4 @@
 --!strict
-local EncodingService = game:GetService("EncodingService")
 -- ParamDefs
 -- Defines all animation parameters such as defaults and ranges,
 -- and provides helpers to create a parameter state table.
