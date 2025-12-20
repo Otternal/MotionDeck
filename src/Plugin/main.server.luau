@@ -200,14 +200,19 @@ local function startPreview(motors: { [string]: Motor6D })
 		local rootAmp = paramState.RootRollAmp :: number
 		local rootPhase = paramState.RootRollPhase :: number
 
+		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
+		local torsoYAmp = paramState.TorsoYAmp :: number
+
 		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase)
 		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
+		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
+		local torsoY = MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
 
 		if activeMotors.Neck then
 			activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
 		end
 		if activeMotors.RootJoint then
-			activeMotors.RootJoint.Transform = CFrame.Angles(0, 0, rootRoll)
+			activeMotors.RootJoint.Transform = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
 		end
 	end)
 end
@@ -430,7 +435,7 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 		end
 		setValue(current :: number)
 
-		-- Drag logic (working??)
+		-- Drag logic
 		local dragging = false
 
 		local function valueFromMouseX(mouseX: number): number
