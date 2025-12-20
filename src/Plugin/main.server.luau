@@ -414,33 +414,34 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 			return ndef.min + alpha * (ndef.max - ndef.min)
 		end
 
-		table.insert(
-			sliderConnections,
-			bar.InputBegan:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					dragging = true
+		local function onBarInputBegan(input: InputObject)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				dragging = true
+				setValue(valueFromMouseX(input.Position.X))
+			end
+
+			local function onBarInputChanged(input: InputObject)
+				if dragging and input.UserInputType == Enum.UserInputType.MouseButton1 then
 					setValue(valueFromMouseX(input.Position.X))
 				end
-			end)
-		)
+			end
 
-		table.insert(
-			sliderConnections,
-			UserInputService.InputChanged:Connect(function(input)
-				if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-					setValue(valueFromMouseX(input.Position.X))
-				end
-			end)
-		)
-
-		table.insert(
-			sliderConnections,
-			UserInputService.InputEnded:Connect(function(input)
+			local function onBarInputEnded(input: InputObject)
 				if input.UserInputType == Enum.UserInputType.MouseButton1 then
 					dragging = false
 				end
-			end)
-		)
+			end
+
+			-- Bar connections
+			table.insert(sliderConnections, bar.InputBegan:Connect(onBarInputBegan))
+			table.insert(sliderConnections, bar.InputChanged:Connect(onBarInputChanged))
+			table.insert(sliderConnections, bar.InputEnded:Connect(onBarInputEnded))
+
+			-- Knob connections
+			table.insert(sliderConnections, knob.InputBegan:Connect(onBarInputBegan))
+			table.insert(sliderConnections, knob.InputChanged:Connect(onBarInputChanged))
+			table.insert(sliderConnections, knob.InputEnded:Connect(onBarInputEnded))
+		end
 	end
 end
 
