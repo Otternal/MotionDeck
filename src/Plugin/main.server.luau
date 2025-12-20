@@ -299,6 +299,33 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	track:Play(0.1)
 end
 
+local function getOrCreateFolder(): Folder
+	local exports = ReplicatedStorage:FindFirstChild("MotionDeckExports")
+	if exports then
+		if exports:IsA("Folder") then
+			return exports
+		end
+		error("MotionDeck: ReplicatedStorage.MotionDeckExports exists but is not a Folder")
+	end
+
+	local folder = Instance.new("Folder")
+	folder.Name = "MotionDeckExports"
+	folder.Parent = ReplicatedStorage
+	return folder
+end
+
+local function exportKeyframeSequence(seq: KeyframeSequence, rigName: string): KeyframeSequence
+	local exportsFolder = getOrCreateFolder()
+
+	local clone = seq:Clone()
+
+	local stamp = os.date("!%Y%m%d_%H%M%S")
+	clone.Name = string.format("%s_%s", rigName, stamp)
+
+	clone.Parent = exportsFolder
+	return clone
+end
+
 local function setStatus(text: string)
 	statusLabel.Text = "Status: " .. text
 end
@@ -523,12 +550,15 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 	end
 
 	paramState = ParamDefs.sanitiseState(paramState)
+
 	stopPreview()
 
 	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
-	playBakedOnRig(activeModel, seq)
+	local exported = exportKeyframeSequence(seq, activeModel.Name)
 
-	setStatus("Playing baked")
+	setStatus("Baked and exported animation")
+
+	Selection:Set({ exported })
 end)
 
 button.Click:Connect(function()
