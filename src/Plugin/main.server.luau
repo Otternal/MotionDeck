@@ -371,7 +371,11 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 		local bar = row:WaitForChild("Bar") :: Frame
 		local knob = bar:WaitForChild("Knob") :: Frame
 
-		paramLabel.Text = ndef.label
+		if ndef.unit and ndef.unit ~= "" then
+			paramLabel.Text = string.format("%s (%s)", ndef.label, ndef.unit)
+		else
+			paramLabel.Text = ndef.label
+		end
 
 		local step = ndef.step or 0.01
 
@@ -381,7 +385,7 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 			newValue = math.clamp(newValue, ndef.min, ndef.max)
 
 			paramState[id] = newValue
-			valueLabel.Text = formatValue(newValue, ndef.unit)
+			valueLabel.Text = string.format("%.3f", newValue)
 
 			local alpha = 0
 			if ndef.max > ndef.min then
