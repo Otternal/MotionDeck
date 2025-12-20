@@ -95,6 +95,9 @@ local currentTrack: AnimationTrack? = nil
 local BAKE_DURATION_SECONDS = 4.0
 local BAKE_FPS = 30
 
+-- Neck motion delay
+local NECK_LAG = 0.35
+
 print("MotionDeck plugin loaded successfully")
 
 -----------------------------
@@ -203,10 +206,10 @@ local function startPreview(motors: { [string]: Motor6D })
 		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
 		local torsoYAmp = paramState.TorsoYAmp :: number
 
-		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase)
+		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
 		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
-		local torsoY = MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
+		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
 
 		if activeMotors.Neck then
 			activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
@@ -233,7 +236,10 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local rootAmp = state.RootRollAmp :: number
 	local rootPhase = state.RootRollPhase :: number
 
-	local function addKeyframe(time: number, neckPitch: number, rootRoll: number)
+	local torsoPitchAmp = state.TorsoPitchAmp :: number
+	local torsoYAmp = state.TorsoYAmp :: number
+
+	local function addKeyframe(time: number, neckPitch: number, rootRoll: number, torsoPitch: number, torsoY: number)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
@@ -246,7 +252,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local torsoPose = Instance.new("Pose")
 		torsoPose.Name = "Torso"
-		torsoPose.CFrame = CFrame.Angles(0, 0, rootRoll)
+		torsoPose.CFrame = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
 		torsoPose.Parent = hrpPose
 
 		local headPose = Instance.new("Pose")
@@ -258,10 +264,12 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	for i = 0, frameCount - 1 do
 		local time = i * dt
 
-		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase)
+		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
 		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
+		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
+		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
 
-		addKeyframe(time, neckPitch, rootRoll)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
 	end
 
 	return seq
