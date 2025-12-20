@@ -1,4 +1,4 @@
-# MotionDeck
+# MotionDeck (DEMO)
 **Author:** Theodore Armour McKenzie  
 **Matriculation Number:** 40597169  
 **Module:** Advanced Games Engineering / Honours Project  
