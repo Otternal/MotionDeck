@@ -1,5 +1,4 @@
 --!strict
-local EncodingService = game:GetService("EncodingService")
 -- ParamDefs
 -- Defines all animation parameters such as defaults and ranges,
 -- and provides helpers to create a parameter state table.
@@ -132,16 +131,6 @@ function Params.makeDefaultState(): ParamState
 	return state
 end
 
-local function clampNumber(x: number, minV: number, maxV: number): number
-	if x < minV then
-		return minV
-	end
-	if x > maxV then
-		return maxV
-	end
-	return x
-end
-
 -- Validate an inputted state
 function Params.sanitiseState(input: ParamState?): ParamState
 	local out: ParamState = {}
@@ -151,7 +140,7 @@ function Params.sanitiseState(input: ParamState?): ParamState
 
 		if def.kind == "number" then
 			if typeof(value) == "number" then
-				out[id] = clampNumber(value :: number, def.min, def.max)
+				out[id] = math.clamp(value :: number, def.min, def.max)
 			else
 				out[id] = def.default
 			end

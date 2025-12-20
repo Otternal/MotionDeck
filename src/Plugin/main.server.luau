@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 local Selection = game:GetService("Selection")
+local UserInputService = game:GetService("UserInputService")
 
 -----------------------------
 -- MODULES --
@@ -29,19 +30,68 @@ local pluginGui = plugin:CreateDockWidgetPluginGuiAsync("MotionDeckUI", widgetIn
 pluginGui.Title = "MotionDeck"
 
 -----------------------------
+-- UI MOUNT --
+-----------------------------
+local uiFolder = script.Parent:WaitForChild("UI")
+local uiTemplateInst = uiFolder:WaitForChild("MainUI")
+
+local activeModel: Model? = nil
+
+local sliderConnections: { RBXScriptConnection } = {}
+
+if not uiTemplateInst:IsA("Frame") then
+	error("MotionDeck: MainUI must be a Frame")
+end
+local uiTemplate = uiTemplateInst :: Frame
+
+local ui = uiTemplate:Clone()
+ui.Parent = pluginGui
+ui.Size = UDim2.fromScale(1, 1)
+ui.Position = UDim2.fromScale(0, 0)
+
+local function getRequiredFrame(parent: Instance, frameName: string): Frame
+	local inst = parent:WaitForChild(frameName)
+
+	if not inst:IsA("Frame") then
+		error(`MotionDeck: {frameName} exists but is not a Frame`)
+	end
+
+	return inst
+end
+
+-- Frames
+local rigFrame = getRequiredFrame(ui, "RigFrame")
+local sliderFrame = getRequiredFrame(ui, "SliderFrame")
+local statusFrame = getRequiredFrame(ui, "StatusFrame")
+local previewFrame = getRequiredFrame(ui, "PreviewFrame")
+
+-- Rig section
+local targetLabel = rigFrame:WaitForChild("TargetLabel") :: TextLabel
+local useSelectedBtn = rigFrame:WaitForChild("RigButton") :: TextButton
+
+-- Sliders section
+local paramsScroll = sliderFrame:WaitForChild("ScrollingFrame") :: ScrollingFrame
+
+-- Status section
+local statusLabel = statusFrame:WaitForChild("StateLabel") :: TextLabel
+
+-- Preview section
+local startPreviewBtn = previewFrame:WaitForChild("StartPreviewButton") :: TextButton
+local stopPreviewBtn = previewFrame:WaitForChild("StopPreviewButton") :: TextButton
+local bakePlayBtn = previewFrame:WaitForChild("BakeButton") :: TextButton
+
+-----------------------------
 -- STATE --
 -----------------------------
 local paramState: ParamDefs.ParamState = ParamDefs.makeDefaultState()
 
 local activeMotors: { [string]: Motor6D } = {}
-local previewRunning = false
-local previewTask: thread? = nil
 local t = 0
 
 local lastSelectedModel: Model? = nil
 local currentTrack: AnimationTrack? = nil
 
--- Demo bake settings (Option 1 loop-friendly)
+-- Demo bake settings
 local BAKE_DURATION_SECONDS = 4.0
 local BAKE_FPS = 30
 
@@ -124,22 +174,19 @@ end
 local previewConn: RBXScriptConnection? = nil
 
 local function stopPreview()
-	previewRunning = false
-	previewTask = nil
+	if previewConn then
+		previewConn:Disconnect()
+		previewConn = nil
+	end
 
 	resetPreviewTransforms()
 	t = 0
 end
 
--- NOTE: live preview loop exists but is intentionally not called in the current demo build
--- TODO: renable live preview in UI
 local function startPreview(motors: { [string]: Motor6D })
 	stopPreview()
 
 	activeMotors = motors
-	t = 0
-
-	local last = os.clock()
 
 	previewConn = RunService.Heartbeat:Connect(function(dt: number)
 		local timeSpeed = paramState.TimeSpeed :: number
@@ -218,17 +265,17 @@ end
 local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	local animator = getOrCreateAnimator(model)
 	if not animator then
-		warn("MotionDeck: No Humanoid/Animator found; cannot play baked animation.")
+		warn("MotionDeck: No Humanoid/Animator found!")
 		return
 	end
 
 	-- Register a local test animation id
 	local animId: string
-	local ok, result = pcall(function()
+	local success, result = pcall(function()
 		return KeyframeSequenceProvider:RegisterActiveKeyframeSequence(seq)
 	end)
 
-	if ok then
+	if success then
 		animId = result
 	else
 		animId = KeyframeSequenceProvider:RegisterKeyframeSequence(seq)
@@ -252,6 +299,165 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	track:Play(0.1)
 end
 
+local function setStatus(text: string)
+	statusLabel.Text = "Status: " .. text
+end
+
+local function setTarget(model: Model?)
+	activeModel = model
+	if model then
+		targetLabel.Text = "Target: " .. model.Name
+	else
+		targetLabel.Text = "Target: None"
+	end
+end
+
+local function roundToStep(x: number, step: number): number
+	return math.floor((x / step) + 0.5) * step
+end
+
+local function formatValue(x: number, unit: string?): string
+	local s = string.format("%.3f", x)
+	if unit and unit ~= "" then
+		return s .. " " .. unit
+	end
+	return s
+end
+
+local function disconnectSliders()
+	for _, c in sliderConnections do
+		c:Disconnect()
+	end
+	table.clear(sliderConnections)
+end
+
+local function buildParamSliders(paramsScroll: ScrollingFrame)
+	disconnectSliders()
+
+	-- Template
+	local templateInst = paramsScroll:WaitForChild("SliderRowTemplate")
+	if not templateInst:IsA("Frame") then
+		error("MotionDeck: SliderRowTemplate must be a Frame")
+	end
+	local template = templateInst :: Frame
+	template.Visible = false
+
+	-- Clear previously created rows
+	for _, child in paramsScroll:GetChildren() do
+		if child:IsA("Frame") and child ~= template then
+			child:Destroy()
+		end
+	end
+
+	-- Making sure paramState is valid
+	paramState = ParamDefs.sanitiseState(paramState)
+
+	for _, id in ParamDefs.getOrderedParamIds() do
+		local def = ParamDefs.Defs[id]
+		if def.kind ~= "number" then
+			continue
+		end
+		local ndef = def :: ParamDefs.ParamNumberDef
+
+		-- Clone row template
+		local row = template:Clone()
+		row.Name = id
+		row.Visible = true
+		row.Parent = paramsScroll
+
+		-- Get all UI elements
+		local paramLabel = row:WaitForChild("ParamLabel") :: TextLabel
+		local valueLabel = row:WaitForChild("ValueLabel") :: TextLabel
+		local bar = row:WaitForChild("Bar") :: Frame
+		local knob = bar:WaitForChild("Knob") :: Frame
+
+		if ndef.unit and ndef.unit ~= "" then
+			paramLabel.Text = string.format("%s (%s)", ndef.label, ndef.unit)
+		else
+			paramLabel.Text = ndef.label
+		end
+
+		local step = ndef.step or 0.01
+
+		local function setValue(newValue: number)
+			newValue = math.clamp(newValue, ndef.min, ndef.max)
+			newValue = roundToStep(newValue, step)
+			newValue = math.clamp(newValue, ndef.min, ndef.max)
+
+			paramState[id] = newValue
+			valueLabel.Text = string.format("%.3f", newValue)
+
+			local alpha = 0
+			if ndef.max > ndef.min then
+				alpha = (newValue - ndef.min) / (ndef.max - ndef.min)
+			end
+
+			-- Centre knob
+			knob.Position = UDim2.fromScale(alpha, 0.5)
+		end
+
+		-- Initiate from state
+		local current = paramState[id]
+		if typeof(current) ~= "number" then
+			current = ndef.default
+		end
+		setValue(current :: number)
+
+		-- Drag logic (working??)
+		local dragging = false
+
+		local function valueFromMouseX(mouseX: number): number
+			local x0 = bar.AbsolutePosition.X
+			local w = bar.AbsoluteSize.X
+			if w <= 0 then
+				return ndef.default
+			end
+
+			local alpha = math.clamp((mouseX - x0) / w, 0, 1)
+			return ndef.min + alpha * (ndef.max - ndef.min)
+		end
+
+		local function onInputBegan(input: InputObject)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				dragging = true
+				setValue(valueFromMouseX(input.Position.X))
+			end
+		end
+
+		local function onInputChanged(input: InputObject)
+			if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+				setValue(valueFromMouseX(input.Position.X))
+			end
+		end
+
+		local function onInputEnded(input: InputObject)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				dragging = false
+			end
+		end
+
+		-- Connect once per slider
+		table.insert(sliderConnections, bar.InputBegan:Connect(onInputBegan))
+		table.insert(sliderConnections, knob.InputBegan:Connect(onInputBegan))
+
+		table.insert(sliderConnections, bar.InputChanged:Connect(onInputChanged))
+		table.insert(sliderConnections, knob.InputChanged:Connect(onInputChanged))
+
+		table.insert(sliderConnections, bar.InputEnded:Connect(onInputEnded))
+		table.insert(sliderConnections, knob.InputEnded:Connect(onInputEnded))
+
+		-- Safety inclusion
+		table.insert(
+			sliderConnections,
+			UserInputService.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging = false
+				end
+			end)
+		)
+	end
+end
+
 -----------------------------
 -- HANDLERS --
 -----------------------------
@@ -260,52 +466,78 @@ Selection.SelectionChanged:Connect(function()
 	if current ~= lastSelectedModel then
 		stopPreview()
 		lastSelectedModel = current
-		print("Selection changed: preview stopped + transforms reset")
 	end
+end)
+
+useSelectedBtn.MouseButton1Click:Connect(function()
+	local model = getSelectedModel()
+	if not model then
+		setTarget(nil)
+		setStatus("No selection")
+		return
+	end
+
+	local motors = getR6MotorsFromCharacter(model)
+	if not (motors.RootJoint or motors.Neck) then
+		setTarget(nil)
+		setStatus("Selection is not a valid R6 rig")
+		return
+	end
+
+	setTarget(model)
+	setStatus("Target set")
+end)
+
+startPreviewBtn.MouseButton1Click:Connect(function()
+	if not activeModel then
+		setStatus("No target set")
+		return
+	end
+
+	paramState = ParamDefs.sanitiseState(paramState)
+	if not (paramState.EnablePreview :: boolean) then
+		setStatus("Preview disabled")
+		return
+	end
+
+	local motors = getR6MotorsFromCharacter(activeModel)
+	if not (motors.RootJoint or motors.Neck) then
+		setTarget(nil)
+		setStatus("Target invalid")
+		return
+	end
+
+	startPreview(motors)
+	setStatus("Previewing")
+end)
+
+stopPreviewBtn.MouseButton1Click:Connect(function()
+	stopPreview()
+	setStatus("Stopped")
+end)
+
+bakePlayBtn.MouseButton1Click:Connect(function()
+	if not activeModel then
+		setStatus("No target set")
+		return
+	end
+
+	paramState = ParamDefs.sanitiseState(paramState)
+	stopPreview()
+
+	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
+	playBakedOnRig(activeModel, seq)
+
+	setStatus("Playing baked")
 end)
 
 button.Click:Connect(function()
-	-- Toolbar button toggles UI
 	pluginGui.Enabled = not pluginGui.Enabled
-	print("Button pressed!")
-
-	local model = getSelectedModel()
-	if not model then
-		print("No model selected.")
-		return
-	end
-	lastSelectedModel = model
-
-	-- Validate state
-	paramState = ParamDefs.sanitiseState(paramState)
-
-	local motors = getR6MotorsFromCharacter(model)
-	print("Selected model:", model:GetFullName())
-	print(
-		"Found motors:",
-		"RootJoint =",
-		motors.RootJoint and motors.RootJoint:GetFullName() or "nil",
-		"Neck =",
-		motors.Neck and motors.Neck:GetFullName() or "nil"
-	)
-
-	local enable = paramState.EnablePreview :: boolean
-	if not enable then
-		stopPreview()
-		print("Preview disabled")
-		return
-	end
-
-	if not (motors.RootJoint or motors.Neck) then
-		stopPreview()
-		print("No valid R6 motors found")
-		return
-	end
-
-	-- FOR TESTING PURPOSES! bake & play immediately.
-	-- TODO: use UI
-	stopPreview()
-	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
-	playBakedOnRig(model, seq)
-	print("Baked and playing")
 end)
+
+-----------------------------
+-- MAIN --
+-----------------------------
+setTarget(nil)
+setStatus("Idle")
+buildParamSliders(paramsScroll)
