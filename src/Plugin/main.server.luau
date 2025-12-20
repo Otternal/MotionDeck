@@ -93,7 +93,7 @@ local currentTrack: AnimationTrack? = nil
 
 -- Demo bake settings
 local BAKE_DURATION_SECONDS = 4.0
-local BAKE_FPS = 30
+local BAKE_FPS = 60
 
 -- Neck motion delay
 local NECK_LAG = 0.35
@@ -207,7 +207,7 @@ local function startPreview(motors: { [string]: Motor6D })
 		local torsoYAmp = paramState.TorsoYAmp :: number
 
 		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(t, neckFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
 
@@ -220,9 +220,20 @@ local function startPreview(motors: { [string]: Motor6D })
 	end)
 end
 
+local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles: number): number
+	local freq = state.NeckPitchFreq :: number
+	if freq <= 0 then
+		return BAKE_DURATION_SECONDS
+	end
+
+	local period = 1 / freq
+	return period * cycles
+end
+
 local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
 	local seq = Instance.new("KeyframeSequence")
 	seq.Name = "MotionDeck_Baked"
+	seq.Loop = true
 
 	local frameCount = math.floor(duration * fps)
 	local dt = 1 / fps
@@ -265,7 +276,18 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local time = i * dt
 
 		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
+		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
+		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
+
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
+	end
+
+	do
+		local time = duration
+
+		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
+		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
 
@@ -566,7 +588,8 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 
 	stopPreview()
 
-	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
+	local duration = getLoopDurationFromBreathing(paramState, 1)
+	local seq = bakeKeyframeSequence(paramState, duration, BAKE_FPS)
 	local exported = exportKeyframeSequence(seq, activeModel.Name)
 
 	setStatus("Baked and exported animation")
