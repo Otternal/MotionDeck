@@ -230,12 +230,14 @@ local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles:
 	return period * cycles
 end
 
+-- Bake duration is taken from the breathing frequency
+-- to garuantee that the baked animation loops perfectly
 local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
 	local seq = Instance.new("KeyframeSequence")
 	seq.Name = "MotionDeck_Baked"
 	seq.Loop = true
 
-	local frameCount = math.floor(duration * fps)
+	local frameCount = math.max(1, math.round(duration * fps))
 	local dt = 1 / fps
 
 	-- Read params

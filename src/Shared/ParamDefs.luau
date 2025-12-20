@@ -36,7 +36,7 @@ Params.Defs = {
 	-- Time/preview controls
 	TimeSpeed = {
 		kind = "number",
-		label = "Time Speed",
+		label = "Preview Speed",
 		order = 1,
 		default = 1.0,
 		min = 0.0,
