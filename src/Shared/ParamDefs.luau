@@ -36,7 +36,7 @@ Params.Defs = {
 	-- Time/preview controls
 	TimeSpeed = {
 		kind = "number",
-		label = "Time Speed",
+		label = "Preview Speed",
 		order = 1,
 		default = 1.0,
 		min = 0.0,
@@ -48,7 +48,7 @@ Params.Defs = {
 	-- Breathing (Neck)
 	NeckPitchFreq = {
 		kind = "number",
-		label = "Neck Pitch Frequency",
+		label = "Breathing Frequency",
 		order = 10,
 		default = 0.25,
 		min = 0.0,
@@ -70,7 +70,7 @@ Params.Defs = {
 
 	NeckPitchPhase = {
 		kind = "number",
-		label = "Neck Pitch Phase",
+		label = "Breathing Phase",
 		order = 12,
 		default = 0.0,
 		min = -math.pi,
@@ -111,6 +111,28 @@ Params.Defs = {
 		max = math.pi,
 		step = 0.01,
 		unit = "rad",
+	} :: ParamNumberDef,
+
+	TorsoPitchAmp = {
+		kind = "number",
+		label = "Torso Pitch Amplitude",
+		order = 13,
+		default = 0.03,
+		min = 0.0,
+		max = 0.20,
+		step = 0.001,
+		unit = "rad",
+	} :: ParamNumberDef,
+
+	TorsoYAmp = {
+		kind = "number",
+		label = "Torso Y Amplitude",
+		order = 14,
+		default = 0.03,
+		min = 0.0,
+		max = 0.20,
+		step = 0.001,
+		unit = "stud",
 	} :: ParamNumberDef,
 
 	-- Debugging

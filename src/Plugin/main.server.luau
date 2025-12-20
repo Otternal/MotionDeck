@@ -93,7 +93,10 @@ local currentTrack: AnimationTrack? = nil
 
 -- Demo bake settings
 local BAKE_DURATION_SECONDS = 4.0
-local BAKE_FPS = 30
+local BAKE_FPS = 60
+
+-- Neck motion delay
+local NECK_LAG = 0.35
 
 print("MotionDeck plugin loaded successfully")
 
@@ -200,23 +203,41 @@ local function startPreview(motors: { [string]: Motor6D })
 		local rootAmp = paramState.RootRollAmp :: number
 		local rootPhase = paramState.RootRollPhase :: number
 
-		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase)
-		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
+		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
+		local torsoYAmp = paramState.TorsoYAmp :: number
+
+		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
+		local rootRoll = MathsUtil.sin(t, neckFreq, rootAmp, rootPhase)
+		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
+		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
 
 		if activeMotors.Neck then
 			activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
 		end
 		if activeMotors.RootJoint then
-			activeMotors.RootJoint.Transform = CFrame.Angles(0, 0, rootRoll)
+			activeMotors.RootJoint.Transform = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
 		end
 	end)
 end
 
+local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles: number): number
+	local freq = state.NeckPitchFreq :: number
+	if freq <= 0 then
+		return BAKE_DURATION_SECONDS
+	end
+
+	local period = 1 / freq
+	return period * cycles
+end
+
+-- Bake duration is taken from the breathing frequency
+-- to garuantee that the baked animation loops perfectly
 local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
 	local seq = Instance.new("KeyframeSequence")
 	seq.Name = "MotionDeck_Baked"
+	seq.Loop = true
 
-	local frameCount = math.floor(duration * fps)
+	local frameCount = math.max(1, math.round(duration * fps))
 	local dt = 1 / fps
 
 	-- Read params
@@ -228,7 +249,10 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local rootAmp = state.RootRollAmp :: number
 	local rootPhase = state.RootRollPhase :: number
 
-	local function addKeyframe(time: number, neckPitch: number, rootRoll: number)
+	local torsoPitchAmp = state.TorsoPitchAmp :: number
+	local torsoYAmp = state.TorsoYAmp :: number
+
+	local function addKeyframe(time: number, neckPitch: number, rootRoll: number, torsoPitch: number, torsoY: number)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
@@ -241,7 +265,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local torsoPose = Instance.new("Pose")
 		torsoPose.Name = "Torso"
-		torsoPose.CFrame = CFrame.Angles(0, 0, rootRoll)
+		torsoPose.CFrame = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
 		torsoPose.Parent = hrpPose
 
 		local headPose = Instance.new("Pose")
@@ -253,10 +277,23 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	for i = 0, frameCount - 1 do
 		local time = i * dt
 
-		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase)
-		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
+		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
+		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
+		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
+		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
 
-		addKeyframe(time, neckPitch, rootRoll)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
+	end
+
+	do
+		local time = duration
+
+		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
+		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
+		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
+		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
+
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
 	end
 
 	return seq
@@ -297,6 +334,33 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	track.Priority = Enum.AnimationPriority.Action
 	track.Looped = true
 	track:Play(0.1)
+end
+
+local function getOrCreateFolder(): Folder
+	local exports = ReplicatedStorage:FindFirstChild("MotionDeckExports")
+	if exports then
+		if exports:IsA("Folder") then
+			return exports
+		end
+		error("MotionDeck: ReplicatedStorage.MotionDeckExports exists but is not a Folder")
+	end
+
+	local folder = Instance.new("Folder")
+	folder.Name = "MotionDeckExports"
+	folder.Parent = ReplicatedStorage
+	return folder
+end
+
+local function exportKeyframeSequence(seq: KeyframeSequence, rigName: string): KeyframeSequence
+	local exportsFolder = getOrCreateFolder()
+
+	local clone = seq:Clone()
+
+	local stamp = os.date("!%Y%m%d_%H%M%S")
+	clone.Name = string.format("%s_%s", rigName, stamp)
+
+	clone.Parent = exportsFolder
+	return clone
 end
 
 local function setStatus(text: string)
@@ -403,7 +467,7 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 		end
 		setValue(current :: number)
 
-		-- Drag logic (working??)
+		-- Drag logic
 		local dragging = false
 
 		local function valueFromMouseX(mouseX: number): number
@@ -523,12 +587,16 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 	end
 
 	paramState = ParamDefs.sanitiseState(paramState)
+
 	stopPreview()
 
-	local seq = bakeKeyframeSequence(paramState, BAKE_DURATION_SECONDS, BAKE_FPS)
-	playBakedOnRig(activeModel, seq)
+	local duration = getLoopDurationFromBreathing(paramState, 1)
+	local seq = bakeKeyframeSequence(paramState, duration, BAKE_FPS)
+	local exported = exportKeyframeSequence(seq, activeModel.Name)
 
-	setStatus("Playing baked")
+	setStatus("Baked and exported animation")
+
+	Selection:Set({ exported })
 end)
 
 button.Click:Connect(function()
