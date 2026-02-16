@@ -51,9 +51,9 @@ Params.Defs = {
 		label = "Breathing Frequency",
 		order = 10,
 		default = 0.25,
-		min = 0.0,
+		min = 0.125,
 		max = 2.0,
-		step = 0.01,
+		step = 0.125,
 		unit = "Hz",
 	} :: ParamNumberDef,
 
@@ -85,9 +85,9 @@ Params.Defs = {
 		label = "Root Roll Frequency",
 		order = 20,
 		default = 0.25,
-		min = 0.0,
+		min = 0.125,
 		max = 2.0,
-		step = 0.01,
+		step = 0.125,
 		unit = "Hz",
 	} :: ParamNumberDef,
 
