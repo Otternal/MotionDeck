@@ -207,7 +207,7 @@ local function startPreview(motors: { [string]: Motor6D })
 		local torsoYAmp = paramState.TorsoYAmp :: number
 
 		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(t, neckFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
 
@@ -278,7 +278,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local time = i * dt
 
 		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
 
@@ -289,7 +289,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local time = duration
 
 		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
 
