@@ -48,7 +48,7 @@ Params.Defs = {
 	-- Breathing (Neck)
 	NeckPitchFreq = {
 		kind = "number",
-		label = "Breathing Frequency",
+		label = "Neck Pitch Frequency",
 		order = 10,
 		default = 0.25,
 		min = 0.125,
@@ -70,7 +70,7 @@ Params.Defs = {
 
 	NeckPitchPhase = {
 		kind = "number",
-		label = "Breathing Phase",
+		label = "Neck Pitch Phase",
 		order = 12,
 		default = 0.0,
 		min = -math.pi,
