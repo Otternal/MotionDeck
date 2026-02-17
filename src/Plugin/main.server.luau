@@ -221,13 +221,38 @@ local function startPreview(motors: { [string]: Motor6D })
 end
 
 local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles: number): number
-	local freq = state.NeckPitchFreq :: number
-	if freq <= 0 then
+	local neckFreq = state.NeckPitchFreq :: number
+	local rootFreq = state.RootRollFreq :: number
+
+	if neckFreq <= 0 or rootFreq <= 0 then
 		return BAKE_DURATION_SECONDS
 	end
 
-	local period = 1 / freq
-	return period * cycles
+	local neckPeriod = 1 / neckFreq
+	local rootPeriod = 1 / rootFreq
+
+	-- Greatest common divisor
+	local function gcd(a: number, b: number): number
+		while b > 0.0001 do
+			a, b = b, a % b
+		end
+		return a
+	end
+
+	-- Lowest common multiple
+	local function lcm(a: number, b: number): number
+		return (a * b) / gcd(a, b)
+	end
+
+	local duration = lcm(neckPeriod, rootPeriod) * cycles
+
+	-- Ensures animations aren't too long
+	if duration > 30 then
+		warn("MotionDeck: Frequency combination creates a very long loop. Using fallback duration.")
+		return math.max(neckPeriod, rootPeriod) * cycles
+	end
+
+	return duration
 end
 
 -- Bake duration is taken from the breathing frequency
