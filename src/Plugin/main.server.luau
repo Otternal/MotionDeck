@@ -90,6 +90,7 @@ local t = 0
 
 local lastSelectedModel: Model? = nil
 local currentTrack: AnimationTrack? = nil
+local originalC0Values: { [Motor6D]: CFrame } = {}
 
 -- Demo bake settings
 local BAKE_DURATION_SECONDS = 4.0
@@ -166,12 +167,13 @@ local function getOrCreateAnimator(model: Model): Animator?
 end
 
 local function resetPreviewTransforms()
-	if activeMotors.Neck then
-		activeMotors.Neck.Transform = CFrame.identity
+	-- Restore original C0 values for all motors
+	for motor, originalC0 in originalC0Values do
+		if motor and motor.Parent then
+			motor.C0 = originalC0
+		end
 	end
-	if activeMotors.RootJoint then
-		activeMotors.RootJoint.Transform = CFrame.identity
-	end
+	table.clear(originalC0Values)
 end
 
 local previewConn: RBXScriptConnection? = nil
@@ -191,7 +193,16 @@ local function startPreview(motors: { [string]: Motor6D })
 
 	activeMotors = motors
 
-	previewConn = RunService.Heartbeat:Connect(function(dt: number)
+	-- Store original C0 values
+	table.clear(originalC0Values)
+	for _, motor in motors do
+		originalC0Values[motor] = motor.C0
+	end
+
+	local isEdit = RunService:IsEdit()
+	local updateEvent = if isEdit then RunService.PreRender else RunService.Heartbeat
+
+	previewConn = updateEvent:Connect(function(dt: number)
 		local timeSpeed = paramState.TimeSpeed :: number
 		t += dt * timeSpeed
 
@@ -206,16 +217,25 @@ local function startPreview(motors: { [string]: Motor6D })
 		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
 		local torsoYAmp = paramState.TorsoYAmp :: number
 
+		-- Calculate motion values
 		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
 		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
 
+		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
-			activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
+			local origC0 = originalC0Values[activeMotors.Neck]
+			if origC0 then
+				activeMotors.Neck.C0 = origC0 * CFrame.Angles(neckPitch, 0, 0)
+			end
 		end
+
 		if activeMotors.RootJoint then
-			activeMotors.RootJoint.Transform = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+			local origC0 = originalC0Values[activeMotors.RootJoint]
+			if origC0 then
+				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+			end
 		end
 	end)
 end
