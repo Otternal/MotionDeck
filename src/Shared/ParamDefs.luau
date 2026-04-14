@@ -135,6 +135,40 @@ Params.Defs = {
 		unit = "stud",
 	} :: ParamNumberDef,
 
+	-- Arm sway
+	ArmSwingFreq = {
+		kind = "number",
+		label = "Arm Swing Frequency",
+		order = 30,
+		default = 0.25,
+		min = 0.125,
+		max = 2.0,
+		step = 0.125,
+		unit = "Hz",
+	} :: ParamNumberDef,
+
+	ArmSwingAmp = {
+		kind = "number",
+		label = "Arm Swing Amplitude",
+		order = 31,
+		default = 0.08,
+		min = 0.0,
+		max = 0.4,
+		step = 0.001,
+		unit = "rad",
+	} :: ParamNumberDef,
+
+	ArmSwingPhase = {
+		kind = "number",
+		label = "Arm Swing Phase",
+		order = 32,
+		default = 0.0,
+		min = -math.pi,
+		max = math.pi,
+		step = 0.01,
+		unit = "rad",
+	} :: ParamNumberDef,
+
 	-- Debugging
 	EnablePreview = {
 		kind = "bool",

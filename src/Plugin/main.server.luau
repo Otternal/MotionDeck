@@ -71,6 +71,7 @@ local useSelectedBtn = rigFrame:WaitForChild("RigButton") :: TextButton
 
 -- Sliders section
 local paramsScroll = sliderFrame:WaitForChild("ScrollingFrame") :: ScrollingFrame
+paramsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
 -- Status section
 local statusLabel = statusFrame:WaitForChild("StateLabel") :: TextLabel
@@ -133,16 +134,40 @@ local function getR6MotorsFromCharacter(model: Model): { [string]: Motor6D }
 	local torso = model:FindFirstChild("Torso")
 
 	if hrp and hrp:IsA("BasePart") then
-		local rootJoint = findMotor(hrp, "RootJoint")
+		local hrpPart = hrp :: BasePart
+
+		local rootJoint = findMotor(hrpPart, "RootJoint")
 		if rootJoint then
 			motors.RootJoint = rootJoint
 		end
 	end
 
 	if torso and torso:IsA("BasePart") then
-		local neck = findMotor(torso, "Neck")
+		local torsoPart = torso :: BasePart
+
+		local neck = findMotor(torsoPart, "Neck")
 		if neck then
 			motors.Neck = neck
+		end
+
+		local leftShoulder = findMotor(torsoPart, "Left Shoulder")
+		if leftShoulder then
+			motors.LeftShoulder = leftShoulder
+		end
+
+		local rightShoulder = findMotor(torsoPart, "Right Shoulder")
+		if rightShoulder then
+			motors.RightShoulder = rightShoulder
+		end
+
+		local leftHip = findMotor(torsoPart, "Left Hip")
+		if leftHip then
+			motors.LeftHip = leftHip
+		end
+
+		local rightHip = findMotor(torsoPart, "Right Hip")
+		if rightHip then
+			motors.RightHip = rightHip
 		end
 	end
 
@@ -217,11 +242,16 @@ local function startPreview(motors: { [string]: Motor6D })
 		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
 		local torsoYAmp = paramState.TorsoYAmp :: number
 
+		local armFreq = paramState.ArmSwingFreq :: number
+		local armAmp = paramState.ArmSwingAmp :: number
+		local armPhase = paramState.ArmSwingPhase :: number
+
 		-- Calculate motion values
 		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
 		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
+		local armSwing = MathsUtil.sin(t, armFreq, armAmp, armPhase)
 
 		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
@@ -235,6 +265,20 @@ local function startPreview(motors: { [string]: Motor6D })
 			local origC0 = originalC0Values[activeMotors.RootJoint]
 			if origC0 then
 				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+			end
+		end
+
+		if activeMotors.LeftShoulder then
+			local origC0 = originalC0Values[activeMotors.LeftShoulder]
+			if origC0 then
+				activeMotors.LeftShoulder.C0 = origC0 * CFrame.Angles(0, 0, -armSwing)
+			end
+		end
+
+		if activeMotors.RightShoulder then
+			local origC0 = originalC0Values[activeMotors.RightShoulder]
+			if origC0 then
+				activeMotors.RightShoulder.C0 = origC0 * CFrame.Angles(0, 0, armSwing)
 			end
 		end
 	end)
@@ -297,7 +341,18 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local torsoPitchAmp = state.TorsoPitchAmp :: number
 	local torsoYAmp = state.TorsoYAmp :: number
 
-	local function addKeyframe(time: number, neckPitch: number, rootRoll: number, torsoPitch: number, torsoY: number)
+	local armFreq = state.ArmSwingFreq :: number
+	local armAmp = state.ArmSwingAmp :: number
+	local armPhase = state.ArmSwingPhase :: number
+
+	local function addKeyframe(
+		time: number,
+		neckPitch: number,
+		rootRoll: number,
+		torsoPitch: number,
+		torsoY: number,
+		armSwing: number
+	)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
@@ -317,6 +372,16 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		headPose.Name = "Head"
 		headPose.CFrame = CFrame.Angles(neckPitch, 0, 0)
 		headPose.Parent = torsoPose
+
+		local leftArmPose = Instance.new("Pose")
+		leftArmPose.Name = "Left Arm"
+		leftArmPose.CFrame = CFrame.Angles(0, 0, -armSwing)
+		leftArmPose.Parent = torsoPose
+
+		local rightArmPose = Instance.new("Pose")
+		rightArmPose.Name = "Right Arm"
+		rightArmPose.CFrame = CFrame.Angles(0, 0, armSwing)
+		rightArmPose.Parent = torsoPose
 	end
 
 	for i = 0, frameCount - 1 do
@@ -326,8 +391,9 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
+		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing)
 	end
 
 	do
@@ -337,8 +403,9 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
+		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing)
 	end
 
 	return seq
@@ -564,6 +631,13 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 				end
 			end)
 		)
+	end
+
+	local layout = paramsScroll:FindFirstChildOfClass("UIListLayout")
+	if layout then
+		paramsScroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+	else
+		warn("MotionDeck: No UIListLayout found in paramsScroll")
 	end
 end
 
