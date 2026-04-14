@@ -93,6 +93,14 @@ local lastSelectedModel: Model? = nil
 local currentTrack: AnimationTrack? = nil
 local originalC0Values: { [Motor6D]: CFrame } = {}
 
+type FootPlantData = {
+	motor: Motor6D,
+	legPart: BasePart,
+	targetWorld: Vector3,
+}
+
+local footPlants: { [string]: FootPlantData } = {}
+
 -- Demo bake settings
 local BAKE_DURATION_SECONDS = 4.0
 local BAKE_FPS = 60
@@ -174,6 +182,80 @@ local function getR6MotorsFromCharacter(model: Model): { [string]: Motor6D }
 	return motors
 end
 
+local function getR6PartsFromCharacter(model: Model): { [string]: BasePart }
+	local parts: { [string]: BasePart } = {}
+
+	local torso = model:FindFirstChild("Torso")
+	if torso and torso:IsA("BasePart") then
+		parts.Torso = torso :: BasePart
+	end
+
+	local leftLeg = model:FindFirstChild("Left Leg")
+	if leftLeg and leftLeg:IsA("BasePart") then
+		parts.LeftLeg = leftLeg :: BasePart
+	end
+
+	local rightLeg = model:FindFirstChild("Right Leg")
+	if rightLeg and rightLeg:IsA("BasePart") then
+		parts.RightLeg = rightLeg :: BasePart
+	end
+
+	return parts
+end
+
+local function getLegBottomWorldPosition(legPart: BasePart): Vector3
+	return (legPart.CFrame * CFrame.new(0, -legPart.Size.Y * 0.5, 0)).Position
+end
+
+local function solveR6PlantedLeg(hipMotor: Motor6D, legPart: BasePart, targetWorld: Vector3, originalHipC0: CFrame)
+	local part0 = hipMotor.Part0
+	if not part0 then
+		return
+	end
+
+	local hipWorld = (part0.CFrame * originalHipC0).Position
+
+	local torsoCenter = part0.Position
+	local hipToCenter = (torsoCenter - hipWorld) * Vector3.new(1, 0, 1)
+	local adjustedHipWorld = hipWorld + hipToCenter * 0.5
+	local toTarget = targetWorld - adjustedHipWorld
+	local distance = toTarget.Magnitude
+
+	if distance < 1e-4 then
+		hipMotor.C0 = originalHipC0
+		return
+	end
+
+	local legLength = legPart.Size.Y
+
+	if distance > legLength * 0.99 then
+		distance = legLength * 0.99
+	end
+
+	local legDirection = toTarget.Unit
+
+	local desiredCenter = adjustedHipWorld + legDirection * (legLength * 0.5)
+
+	local legFront = part0.CFrame.RightVector
+
+	local legUp = -legDirection
+
+	local legRight = legFront:Cross(legUp)
+	if legRight.Magnitude < 1e-4 then
+		legFront = part0.CFrame.LookVector
+		legRight = legFront:Cross(legUp)
+	end
+	legRight = legRight.Unit
+
+	legFront = legUp:Cross(legRight)
+
+	local desiredLegWorld = CFrame.fromMatrix(desiredCenter, legRight, legUp, -legFront)
+
+	local newC0 = part0.CFrame:ToObjectSpace(desiredLegWorld * hipMotor.C1)
+
+	hipMotor.C0 = newC0
+end
+
 local function getOrCreateAnimator(model: Model): Animator?
 	local humanoidInst = model:FindFirstChildOfClass("Humanoid")
 	if not humanoidInst or not humanoidInst:IsA("Humanoid") then
@@ -211,6 +293,7 @@ local function stopPreview()
 
 	resetPreviewTransforms()
 	t = 0
+	table.clear(footPlants)
 end
 
 local function startPreview(motors: { [string]: Motor6D })
@@ -222,6 +305,28 @@ local function startPreview(motors: { [string]: Motor6D })
 	table.clear(originalC0Values)
 	for _, motor in motors do
 		originalC0Values[motor] = motor.C0
+	end
+
+	table.clear(footPlants)
+
+	if activeModel then
+		local parts = getR6PartsFromCharacter(activeModel)
+
+		if motors.LeftHip and parts.LeftLeg then
+			footPlants.Left = {
+				motor = motors.LeftHip,
+				legPart = parts.LeftLeg,
+				targetWorld = getLegBottomWorldPosition(parts.LeftLeg),
+			}
+		end
+
+		if motors.RightHip and parts.RightLeg then
+			footPlants.Right = {
+				motor = motors.RightHip,
+				legPart = parts.RightLeg,
+				targetWorld = getLegBottomWorldPosition(parts.RightLeg),
+			}
+		end
 	end
 
 	local isEdit = RunService:IsEdit()
@@ -279,6 +384,31 @@ local function startPreview(motors: { [string]: Motor6D })
 			local origC0 = originalC0Values[activeMotors.RightShoulder]
 			if origC0 then
 				activeMotors.RightShoulder.C0 = origC0 * CFrame.Angles(0, 0, armSwing)
+			end
+		end
+
+		-- Apply leg IK
+		if footPlants.Left and activeMotors.LeftHip then
+			local origHipC0 = originalC0Values[activeMotors.LeftHip]
+			if origHipC0 then
+				solveR6PlantedLeg(
+					footPlants.Left.motor,
+					footPlants.Left.legPart,
+					footPlants.Left.targetWorld,
+					origHipC0
+				)
+			end
+		end
+
+		if footPlants.Right and activeMotors.RightHip then
+			local origHipC0 = originalC0Values[activeMotors.RightHip]
+			if origHipC0 then
+				solveR6PlantedLeg(
+					footPlants.Right.motor,
+					footPlants.Right.legPart,
+					footPlants.Right.targetWorld,
+					origHipC0
+				)
 			end
 		end
 	end)
