@@ -48,12 +48,12 @@ Params.Defs = {
 	-- Breathing (Neck)
 	NeckPitchFreq = {
 		kind = "number",
-		label = "Breathing Frequency",
+		label = "Neck Pitch Frequency",
 		order = 10,
 		default = 0.25,
-		min = 0.0,
+		min = 0.125,
 		max = 2.0,
-		step = 0.01,
+		step = 0.125,
 		unit = "Hz",
 	} :: ParamNumberDef,
 
@@ -70,7 +70,7 @@ Params.Defs = {
 
 	NeckPitchPhase = {
 		kind = "number",
-		label = "Breathing Phase",
+		label = "Neck Pitch Phase",
 		order = 12,
 		default = 0.0,
 		min = -math.pi,
@@ -85,9 +85,9 @@ Params.Defs = {
 		label = "Root Roll Frequency",
 		order = 20,
 		default = 0.25,
-		min = 0.0,
+		min = 0.125,
 		max = 2.0,
-		step = 0.01,
+		step = 0.125,
 		unit = "Hz",
 	} :: ParamNumberDef,
 
@@ -133,6 +133,51 @@ Params.Defs = {
 		max = 0.20,
 		step = 0.001,
 		unit = "stud",
+	} :: ParamNumberDef,
+
+	-- Arm sway
+	ArmSwingFreq = {
+		kind = "number",
+		label = "Arm Swing Frequency",
+		order = 30,
+		default = 0.25,
+		min = 0.125,
+		max = 2.0,
+		step = 0.125,
+		unit = "Hz",
+	} :: ParamNumberDef,
+
+	ArmSwingAmp = {
+		kind = "number",
+		label = "Arm Swing Amplitude",
+		order = 31,
+		default = 0.08,
+		min = 0.0,
+		max = 0.4,
+		step = 0.001,
+		unit = "rad",
+	} :: ParamNumberDef,
+
+	ArmSwingPhase = {
+		kind = "number",
+		label = "Arm Swing Phase",
+		order = 32,
+		default = 0.0,
+		min = -math.pi,
+		max = math.pi,
+		step = 0.01,
+		unit = "rad",
+	} :: ParamNumberDef,
+
+	ArmBounceFactor = {
+		kind = "number",
+		label = "Arm Breathing Amplitude",
+		order = 33,
+		default = 0.3,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
 	} :: ParamNumberDef,
 
 	-- Debugging

@@ -71,6 +71,7 @@ local useSelectedBtn = rigFrame:WaitForChild("RigButton") :: TextButton
 
 -- Sliders section
 local paramsScroll = sliderFrame:WaitForChild("ScrollingFrame") :: ScrollingFrame
+paramsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
 -- Status section
 local statusLabel = statusFrame:WaitForChild("StateLabel") :: TextLabel
@@ -90,6 +91,15 @@ local t = 0
 
 local lastSelectedModel: Model? = nil
 local currentTrack: AnimationTrack? = nil
+local originalC0Values: { [Motor6D]: CFrame } = {}
+
+type FootPlantData = {
+	motor: Motor6D,
+	legPart: BasePart,
+	targetWorld: Vector3,
+}
+
+local footPlants: { [string]: FootPlantData } = {}
 
 -- Demo bake settings
 local BAKE_DURATION_SECONDS = 4.0
@@ -132,20 +142,118 @@ local function getR6MotorsFromCharacter(model: Model): { [string]: Motor6D }
 	local torso = model:FindFirstChild("Torso")
 
 	if hrp and hrp:IsA("BasePart") then
-		local rootJoint = findMotor(hrp, "RootJoint")
+		local hrpPart = hrp :: BasePart
+
+		local rootJoint = findMotor(hrpPart, "RootJoint")
 		if rootJoint then
 			motors.RootJoint = rootJoint
 		end
 	end
 
 	if torso and torso:IsA("BasePart") then
-		local neck = findMotor(torso, "Neck")
+		local torsoPart = torso :: BasePart
+
+		local neck = findMotor(torsoPart, "Neck")
 		if neck then
 			motors.Neck = neck
+		end
+
+		local leftShoulder = findMotor(torsoPart, "Left Shoulder")
+		if leftShoulder then
+			motors.LeftShoulder = leftShoulder
+		end
+
+		local rightShoulder = findMotor(torsoPart, "Right Shoulder")
+		if rightShoulder then
+			motors.RightShoulder = rightShoulder
+		end
+
+		local leftHip = findMotor(torsoPart, "Left Hip")
+		if leftHip then
+			motors.LeftHip = leftHip
+		end
+
+		local rightHip = findMotor(torsoPart, "Right Hip")
+		if rightHip then
+			motors.RightHip = rightHip
 		end
 	end
 
 	return motors
+end
+
+local function getR6PartsFromCharacter(model: Model): { [string]: BasePart }
+	local parts: { [string]: BasePart } = {}
+
+	local torso = model:FindFirstChild("Torso")
+	if torso and torso:IsA("BasePart") then
+		parts.Torso = torso :: BasePart
+	end
+
+	local leftLeg = model:FindFirstChild("Left Leg")
+	if leftLeg and leftLeg:IsA("BasePart") then
+		parts.LeftLeg = leftLeg :: BasePart
+	end
+
+	local rightLeg = model:FindFirstChild("Right Leg")
+	if rightLeg and rightLeg:IsA("BasePart") then
+		parts.RightLeg = rightLeg :: BasePart
+	end
+
+	return parts
+end
+
+local function getLegBottomWorldPosition(legPart: BasePart): Vector3
+	return (legPart.CFrame * CFrame.new(0, -legPart.Size.Y * 0.5, 0)).Position
+end
+
+local function solveR6PlantedLeg(hipMotor: Motor6D, legPart: BasePart, targetWorld: Vector3, originalHipC0: CFrame)
+	local part0 = hipMotor.Part0
+	if not part0 then
+		return
+	end
+
+	local hipWorld = (part0.CFrame * originalHipC0).Position
+
+	local torsoCenter = part0.Position
+	local hipToCenter = (torsoCenter - hipWorld) * Vector3.new(1, 0, 1)
+	local adjustedHipWorld = hipWorld + hipToCenter * 0.5
+	local toTarget = targetWorld - adjustedHipWorld
+	local distance = toTarget.Magnitude
+
+	if distance < 1e-4 then
+		hipMotor.C0 = originalHipC0
+		return
+	end
+
+	local legLength = legPart.Size.Y
+
+	if distance > legLength * 0.99 then
+		distance = legLength * 0.99
+	end
+
+	local legDirection = toTarget.Unit
+
+	local desiredCenter = adjustedHipWorld + legDirection * (legLength * 0.5)
+
+	local legFront = part0.CFrame.RightVector
+
+	local legUp = -legDirection
+
+	local legRight = legFront:Cross(legUp)
+	if legRight.Magnitude < 1e-4 then
+		legFront = part0.CFrame.LookVector
+		legRight = legFront:Cross(legUp)
+	end
+	legRight = legRight.Unit
+
+	legFront = legUp:Cross(legRight)
+
+	local desiredLegWorld = CFrame.fromMatrix(desiredCenter, legRight, legUp, -legFront)
+
+	local newC0 = part0.CFrame:ToObjectSpace(desiredLegWorld * hipMotor.C1)
+
+	hipMotor.C0 = newC0
 end
 
 local function getOrCreateAnimator(model: Model): Animator?
@@ -166,12 +274,13 @@ local function getOrCreateAnimator(model: Model): Animator?
 end
 
 local function resetPreviewTransforms()
-	if activeMotors.Neck then
-		activeMotors.Neck.Transform = CFrame.identity
+	-- Restore original C0 values for all motors
+	for motor, originalC0 in originalC0Values do
+		if motor and motor.Parent then
+			motor.C0 = originalC0
+		end
 	end
-	if activeMotors.RootJoint then
-		activeMotors.RootJoint.Transform = CFrame.identity
-	end
+	table.clear(originalC0Values)
 end
 
 local previewConn: RBXScriptConnection? = nil
@@ -184,6 +293,7 @@ local function stopPreview()
 
 	resetPreviewTransforms()
 	t = 0
+	table.clear(footPlants)
 end
 
 local function startPreview(motors: { [string]: Motor6D })
@@ -191,7 +301,38 @@ local function startPreview(motors: { [string]: Motor6D })
 
 	activeMotors = motors
 
-	previewConn = RunService.Heartbeat:Connect(function(dt: number)
+	-- Store original C0 values
+	table.clear(originalC0Values)
+	for _, motor in motors do
+		originalC0Values[motor] = motor.C0
+	end
+
+	table.clear(footPlants)
+
+	if activeModel then
+		local parts = getR6PartsFromCharacter(activeModel)
+
+		if motors.LeftHip and parts.LeftLeg then
+			footPlants.Left = {
+				motor = motors.LeftHip,
+				legPart = parts.LeftLeg,
+				targetWorld = getLegBottomWorldPosition(parts.LeftLeg),
+			}
+		end
+
+		if motors.RightHip and parts.RightLeg then
+			footPlants.Right = {
+				motor = motors.RightHip,
+				legPart = parts.RightLeg,
+				targetWorld = getLegBottomWorldPosition(parts.RightLeg),
+			}
+		end
+	end
+
+	local isEdit = RunService:IsEdit()
+	local updateEvent = if isEdit then RunService.PreRender else RunService.Heartbeat
+
+	previewConn = updateEvent:Connect(function(dt: number)
 		local timeSpeed = paramState.TimeSpeed :: number
 		t += dt * timeSpeed
 
@@ -206,28 +347,108 @@ local function startPreview(motors: { [string]: Motor6D })
 		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
 		local torsoYAmp = paramState.TorsoYAmp :: number
 
+		local armFreq = paramState.ArmSwingFreq :: number
+		local armAmp = paramState.ArmSwingAmp :: number
+		local armPhase = paramState.ArmSwingPhase :: number
+		local armBounceFactor = paramState.ArmBounceFactor :: number
+
+		-- Calculate motion values
 		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(t, neckFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
+		local armSwing = MathsUtil.sin(t, armFreq, armAmp, armPhase)
+		local armBounce = -MathsUtil.sin(t, neckFreq, armBounceFactor * 0.15, neckPhase)
 
+		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
-			activeMotors.Neck.Transform = CFrame.Angles(neckPitch, 0, 0)
+			local origC0 = originalC0Values[activeMotors.Neck]
+			if origC0 then
+				activeMotors.Neck.C0 = origC0 * CFrame.Angles(neckPitch, 0, 0)
+			end
 		end
+
 		if activeMotors.RootJoint then
-			activeMotors.RootJoint.Transform = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+			local origC0 = originalC0Values[activeMotors.RootJoint]
+			if origC0 then
+				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+			end
+		end
+
+		if activeMotors.LeftShoulder then
+			local origC0 = originalC0Values[activeMotors.LeftShoulder]
+			if origC0 then
+				activeMotors.LeftShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+			end
+		end
+
+		if activeMotors.RightShoulder then
+			local origC0 = originalC0Values[activeMotors.RightShoulder]
+			if origC0 then
+				activeMotors.RightShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+			end
+		end
+
+		-- Apply leg IK
+		if footPlants.Left and activeMotors.LeftHip then
+			local origHipC0 = originalC0Values[activeMotors.LeftHip]
+			if origHipC0 then
+				solveR6PlantedLeg(
+					footPlants.Left.motor,
+					footPlants.Left.legPart,
+					footPlants.Left.targetWorld,
+					origHipC0
+				)
+			end
+		end
+
+		if footPlants.Right and activeMotors.RightHip then
+			local origHipC0 = originalC0Values[activeMotors.RightHip]
+			if origHipC0 then
+				solveR6PlantedLeg(
+					footPlants.Right.motor,
+					footPlants.Right.legPart,
+					footPlants.Right.targetWorld,
+					origHipC0
+				)
+			end
 		end
 	end)
 end
 
 local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles: number): number
-	local freq = state.NeckPitchFreq :: number
-	if freq <= 0 then
+	local neckFreq = state.NeckPitchFreq :: number
+	local rootFreq = state.RootRollFreq :: number
+
+	if neckFreq <= 0 or rootFreq <= 0 then
 		return BAKE_DURATION_SECONDS
 	end
 
-	local period = 1 / freq
-	return period * cycles
+	local neckPeriod = 1 / neckFreq
+	local rootPeriod = 1 / rootFreq
+
+	-- Greatest common divisor
+	local function gcd(a: number, b: number): number
+		while b > 0.0001 do
+			a, b = b, a % b
+		end
+		return a
+	end
+
+	-- Lowest common multiple
+	local function lcm(a: number, b: number): number
+		return (a * b) / gcd(a, b)
+	end
+
+	local duration = lcm(neckPeriod, rootPeriod) * cycles
+
+	-- Ensures animations aren't too long
+	if duration > 30 then
+		warn("MotionDeck: Frequency combination creates a very long loop. Using fallback duration.")
+		return math.max(neckPeriod, rootPeriod) * cycles
+	end
+
+	return duration
 end
 
 -- Bake duration is taken from the breathing frequency
@@ -252,7 +473,20 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local torsoPitchAmp = state.TorsoPitchAmp :: number
 	local torsoYAmp = state.TorsoYAmp :: number
 
-	local function addKeyframe(time: number, neckPitch: number, rootRoll: number, torsoPitch: number, torsoY: number)
+	local armFreq = state.ArmSwingFreq :: number
+	local armAmp = state.ArmSwingAmp :: number
+	local armPhase = state.ArmSwingPhase :: number
+	local armBounceFactor = state.ArmBounceFactor :: number
+
+	local function addKeyframe(
+		time: number,
+		neckPitch: number,
+		rootRoll: number,
+		torsoPitch: number,
+		torsoY: number,
+		armSwing: number,
+		armBounce: number
+	)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
@@ -272,28 +506,42 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		headPose.Name = "Head"
 		headPose.CFrame = CFrame.Angles(neckPitch, 0, 0)
 		headPose.Parent = torsoPose
+
+		local leftArmPose = Instance.new("Pose")
+		leftArmPose.Name = "Left Arm"
+		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+		leftArmPose.Parent = torsoPose
+
+		local rightArmPose = Instance.new("Pose")
+		rightArmPose.Name = "Right Arm"
+		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+		rightArmPose.Parent = torsoPose
 	end
 
 	for i = 0, frameCount - 1 do
 		local time = i * dt
 
 		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
+		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
+		local armBounce = math.abs(armSwing) * armBounceFactor
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
 	end
 
 	do
 		local time = duration
 
 		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, neckFreq, rootAmp, rootPhase)
+		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
+		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
+		local armBounce = math.abs(armSwing) * armBounceFactor
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
 	end
 
 	return seq
@@ -519,6 +767,13 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 				end
 			end)
 		)
+	end
+
+	local layout = paramsScroll:FindFirstChildOfClass("UIListLayout")
+	if layout then
+		paramsScroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+	else
+		warn("MotionDeck: No UIListLayout found in paramsScroll")
 	end
 end
 
