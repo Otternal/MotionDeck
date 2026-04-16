@@ -350,6 +350,7 @@ local function startPreview(motors: { [string]: Motor6D })
 		local armFreq = paramState.ArmSwingFreq :: number
 		local armAmp = paramState.ArmSwingAmp :: number
 		local armPhase = paramState.ArmSwingPhase :: number
+		local armBounceFactor = paramState.ArmBounceFactor :: number
 
 		-- Calculate motion values
 		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
@@ -357,6 +358,7 @@ local function startPreview(motors: { [string]: Motor6D })
 		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
 		local armSwing = MathsUtil.sin(t, armFreq, armAmp, armPhase)
+		local armBounce = -MathsUtil.sin(t, neckFreq, armBounceFactor * 0.15, neckPhase)
 
 		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
@@ -376,14 +378,14 @@ local function startPreview(motors: { [string]: Motor6D })
 		if activeMotors.LeftShoulder then
 			local origC0 = originalC0Values[activeMotors.LeftShoulder]
 			if origC0 then
-				activeMotors.LeftShoulder.C0 = origC0 * CFrame.Angles(0, 0, -armSwing)
+				activeMotors.LeftShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
 			end
 		end
 
 		if activeMotors.RightShoulder then
 			local origC0 = originalC0Values[activeMotors.RightShoulder]
 			if origC0 then
-				activeMotors.RightShoulder.C0 = origC0 * CFrame.Angles(0, 0, armSwing)
+				activeMotors.RightShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
 			end
 		end
 
@@ -474,6 +476,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local armFreq = state.ArmSwingFreq :: number
 	local armAmp = state.ArmSwingAmp :: number
 	local armPhase = state.ArmSwingPhase :: number
+	local armBounceFactor = state.ArmBounceFactor :: number
 
 	local function addKeyframe(
 		time: number,
@@ -481,7 +484,8 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		rootRoll: number,
 		torsoPitch: number,
 		torsoY: number,
-		armSwing: number
+		armSwing: number,
+		armBounce: number
 	)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
@@ -505,12 +509,12 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local leftArmPose = Instance.new("Pose")
 		leftArmPose.Name = "Left Arm"
-		leftArmPose.CFrame = CFrame.Angles(0, 0, -armSwing)
+		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
 		leftArmPose.Parent = torsoPose
 
 		local rightArmPose = Instance.new("Pose")
 		rightArmPose.Name = "Right Arm"
-		rightArmPose.CFrame = CFrame.Angles(0, 0, armSwing)
+		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
 		rightArmPose.Parent = torsoPose
 	end
 
@@ -522,8 +526,9 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
 		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
+		local armBounce = math.abs(armSwing) * armBounceFactor
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
 	end
 
 	do
@@ -534,8 +539,9 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
 		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
 		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
+		local armBounce = math.abs(armSwing) * armBounceFactor
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing)
+		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
 	end
 
 	return seq

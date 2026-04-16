@@ -169,6 +169,17 @@ Params.Defs = {
 		unit = "rad",
 	} :: ParamNumberDef,
 
+	ArmBounceFactor = {
+		kind = "number",
+		label = "Arm Breathing Amplitude",
+		order = 33,
+		default = 0.3,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
 	-- Debugging
 	EnablePreview = {
 		kind = "bool",
