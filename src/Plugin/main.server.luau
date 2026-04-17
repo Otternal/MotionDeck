@@ -387,7 +387,6 @@ local function startPreview(motors: { [string]: Motor6D })
 		if activeMotors.RootJoint then
 			local origC0 = originalC0Values[activeMotors.RootJoint]
 			if origC0 then
-				-- No more roll! Just pitch (forward/back) and Y translation (up/down)
 				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 			end
 		end
@@ -410,7 +409,7 @@ local function startPreview(motors: { [string]: Motor6D })
 			end
 		end
 
-		-- Leg IK (unchanged)
+		-- Leg IK
 		if footPlants.Left and activeMotors.LeftHip then
 			local origHipC0 = originalC0Values[activeMotors.LeftHip]
 			if origHipC0 then
