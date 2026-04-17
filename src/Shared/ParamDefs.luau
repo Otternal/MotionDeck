@@ -194,6 +194,18 @@ Params.Defs = {
 		unit = "",
 	} :: ParamNumberDef,
 
+	-- Noise
+	NoiseIntensity = {
+		kind = "number",
+		label = "Motion Randomness",
+		order = 40,
+		default = 0.2,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
 	-- Debugging
 	EnablePreview = {
 		kind = "bool",
