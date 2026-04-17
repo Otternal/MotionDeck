@@ -105,8 +105,15 @@ local footPlants: { [string]: FootPlantData } = {}
 local BAKE_DURATION_SECONDS = 4.0
 local BAKE_FPS = 60
 
--- Neck motion delay
-local NECK_LAG = 0.35
+-- Maximum values for intensity sliders
+local MAX_HEAD_ROTATION = 0.15
+local MAX_TORSO_PITCH = 0.08
+local MAX_TORSO_LIFT = 0.1
+local MAX_ARM_SWING = 0.3
+local MAX_ARM_BREATHING = 0.2
+
+-- Max delay in seconds (maps to 0-1 delay parameter)
+local MAX_DELAY_SECONDS = 1.0
 
 print("MotionDeck plugin loaded successfully")
 
@@ -336,29 +343,32 @@ local function startPreview(motors: { [string]: Motor6D })
 		local timeSpeed = paramState.TimeSpeed :: number
 		t += dt * timeSpeed
 
-		local neckFreq = paramState.NeckPitchFreq :: number
-		local neckAmp = paramState.NeckPitchAmp :: number
-		local neckPhase = paramState.NeckPitchPhase :: number
+		local freq = paramState.BreathingRate :: number
 
-		local rootFreq = paramState.RootRollFreq :: number
-		local rootAmp = paramState.RootRollAmp :: number
-		local rootPhase = paramState.RootRollPhase :: number
+		-- Read intensity and delay for each body part
+		local headIntensity = paramState.HeadIntensity :: number
+		local headDelay = paramState.HeadDelay :: number
 
-		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
-		local torsoYAmp = paramState.TorsoYAmp :: number
+		local torsoPitchIntensity = paramState.TorsoPitchIntensity :: number
+		local torsoPitchDelay = paramState.TorsoPitchDelay :: number
 
-		local armFreq = paramState.ArmSwingFreq :: number
-		local armAmp = paramState.ArmSwingAmp :: number
-		local armPhase = paramState.ArmSwingPhase :: number
-		local armBounceFactor = paramState.ArmBounceFactor :: number
+		local torsoLiftIntensity = paramState.TorsoLiftIntensity :: number
+		local torsoLiftDelay = paramState.TorsoLiftDelay :: number
+
+		local armSwingIntensity = paramState.ArmSwingIntensity :: number
+		local armSwingDelay = paramState.ArmSwingDelay :: number
+
+		local armBreathingIntensity = paramState.ArmBreathingIntensity :: number
+		local armBreathingDelay = paramState.ArmBreathingDelay :: number
 
 		-- Calculate motion values
-		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
-		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
-		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
-		local armSwing = MathsUtil.sin(t, armFreq, armAmp, armPhase)
-		local armBounce = -MathsUtil.sin(t, neckFreq, armBounceFactor * 0.15, neckPhase)
+		local neckPitch = MathsUtil.sin(t, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
+		local torsoPitch =
+			MathsUtil.sin(t, freq, torsoPitchIntensity * MAX_TORSO_PITCH, -torsoPitchDelay * MAX_DELAY_SECONDS)
+		local torsoY = -MathsUtil.sin(t, freq, torsoLiftIntensity * MAX_TORSO_LIFT, -torsoLiftDelay * MAX_DELAY_SECONDS)
+		local armSwing = MathsUtil.sin(t, freq, armSwingIntensity * MAX_ARM_SWING, -armSwingDelay * MAX_DELAY_SECONDS)
+		local armBounce =
+			-MathsUtil.sin(t, freq, armBreathingIntensity * MAX_ARM_BREATHING, -armBreathingDelay * MAX_DELAY_SECONDS)
 
 		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
@@ -371,7 +381,8 @@ local function startPreview(motors: { [string]: Motor6D })
 		if activeMotors.RootJoint then
 			local origC0 = originalC0Values[activeMotors.RootJoint]
 			if origC0 then
-				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+				-- No more roll! Just pitch (forward/back) and Y translation (up/down)
+				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 			end
 		end
 
@@ -389,7 +400,7 @@ local function startPreview(motors: { [string]: Motor6D })
 			end
 		end
 
-		-- Apply leg IK
+		-- Leg IK (unchanged)
 		if footPlants.Left and activeMotors.LeftHip then
 			local origHipC0 = originalC0Values[activeMotors.LeftHip]
 			if origHipC0 then
@@ -417,38 +428,11 @@ local function startPreview(motors: { [string]: Motor6D })
 end
 
 local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles: number): number
-	local neckFreq = state.NeckPitchFreq :: number
-	local rootFreq = state.RootRollFreq :: number
-
-	if neckFreq <= 0 or rootFreq <= 0 then
+	local freq = state.BreathingRate :: number
+	if freq <= 0 then
 		return BAKE_DURATION_SECONDS
 	end
-
-	local neckPeriod = 1 / neckFreq
-	local rootPeriod = 1 / rootFreq
-
-	-- Greatest common divisor
-	local function gcd(a: number, b: number): number
-		while b > 0.0001 do
-			a, b = b, a % b
-		end
-		return a
-	end
-
-	-- Lowest common multiple
-	local function lcm(a: number, b: number): number
-		return (a * b) / gcd(a, b)
-	end
-
-	local duration = lcm(neckPeriod, rootPeriod) * cycles
-
-	-- Ensures animations aren't too long
-	if duration > 30 then
-		warn("MotionDeck: Frequency combination creates a very long loop. Using fallback duration.")
-		return math.max(neckPeriod, rootPeriod) * cycles
-	end
-
-	return duration
+	return (1 / freq) * cycles
 end
 
 -- Bake duration is taken from the breathing frequency
@@ -462,26 +446,26 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local dt = 1 / fps
 
 	-- Read params
-	local neckFreq = state.NeckPitchFreq :: number
-	local neckAmp = state.NeckPitchAmp :: number
-	local neckPhase = state.NeckPitchPhase :: number
+	local freq = state.BreathingRate :: number
 
-	local rootFreq = state.RootRollFreq :: number
-	local rootAmp = state.RootRollAmp :: number
-	local rootPhase = state.RootRollPhase :: number
+	local headIntensity = state.HeadIntensity :: number
+	local headDelay = state.HeadDelay :: number
 
-	local torsoPitchAmp = state.TorsoPitchAmp :: number
-	local torsoYAmp = state.TorsoYAmp :: number
+	local torsoPitchIntensity = state.TorsoPitchIntensity :: number
+	local torsoPitchDelay = state.TorsoPitchDelay :: number
 
-	local armFreq = state.ArmSwingFreq :: number
-	local armAmp = state.ArmSwingAmp :: number
-	local armPhase = state.ArmSwingPhase :: number
-	local armBounceFactor = state.ArmBounceFactor :: number
+	local torsoLiftIntensity = state.TorsoLiftIntensity :: number
+	local torsoLiftDelay = state.TorsoLiftDelay :: number
+
+	local armSwingIntensity = state.ArmSwingIntensity :: number
+	local armSwingDelay = state.ArmSwingDelay :: number
+
+	local armBreathingIntensity = state.ArmBreathingIntensity :: number
+	local armBreathingDelay = state.ArmBreathingDelay :: number
 
 	local function addKeyframe(
 		time: number,
 		neckPitch: number,
-		rootRoll: number,
 		torsoPitch: number,
 		torsoY: number,
 		armSwing: number,
@@ -491,7 +475,6 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		kf.Time = time
 		kf.Parent = seq
 
-		-- Pose hierarchy
 		local hrpPose = Instance.new("Pose")
 		hrpPose.Name = "HumanoidRootPart"
 		hrpPose.CFrame = CFrame.identity
@@ -499,7 +482,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local torsoPose = Instance.new("Pose")
 		torsoPose.Name = "Torso"
-		torsoPose.CFrame = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+		torsoPose.CFrame = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 		torsoPose.Parent = hrpPose
 
 		local headPose = Instance.new("Pose")
@@ -521,27 +504,41 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	for i = 0, frameCount - 1 do
 		local time = i * dt
 
-		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
-		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
-		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
-		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
-		local armBounce = math.abs(armSwing) * armBounceFactor
+		local neckPitch = MathsUtil.sin(time, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
+		local torsoPitch =
+			MathsUtil.sin(time, freq, torsoPitchIntensity * MAX_TORSO_PITCH, -torsoPitchDelay * MAX_DELAY_SECONDS)
+		local torsoY =
+			-MathsUtil.sin(time, freq, torsoLiftIntensity * MAX_TORSO_LIFT, -torsoLiftDelay * MAX_DELAY_SECONDS)
+		local armSwing =
+			MathsUtil.sin(time, freq, armSwingIntensity * MAX_ARM_SWING, -armSwingDelay * MAX_DELAY_SECONDS)
+		local armBounce = -MathsUtil.sin(
+			time,
+			freq,
+			armBreathingIntensity * MAX_ARM_BREATHING,
+			-armBreathingDelay * MAX_DELAY_SECONDS
+		)
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
+		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce)
 	end
 
 	do
 		local time = duration
 
-		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
-		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
-		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
-		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
-		local armBounce = math.abs(armSwing) * armBounceFactor
+		local neckPitch = MathsUtil.sin(time, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
+		local torsoPitch =
+			MathsUtil.sin(time, freq, torsoPitchIntensity * MAX_TORSO_PITCH, -torsoPitchDelay * MAX_DELAY_SECONDS)
+		local torsoY =
+			-MathsUtil.sin(time, freq, torsoLiftIntensity * MAX_TORSO_LIFT, -torsoLiftDelay * MAX_DELAY_SECONDS)
+		local armSwing =
+			MathsUtil.sin(time, freq, armSwingIntensity * MAX_ARM_SWING, -armSwingDelay * MAX_DELAY_SECONDS)
+		local armBounce = -MathsUtil.sin(
+			time,
+			freq,
+			armBreathingIntensity * MAX_ARM_BREATHING,
+			-armBreathingDelay * MAX_DELAY_SECONDS
+		)
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
+		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce)
 	end
 
 	return seq
@@ -771,7 +768,7 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 
 	local layout = paramsScroll:FindFirstChildOfClass("UIListLayout")
 	if layout then
-		paramsScroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+		paramsScroll.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y)
 	else
 		warn("MotionDeck: No UIListLayout found in paramsScroll")
 	end
