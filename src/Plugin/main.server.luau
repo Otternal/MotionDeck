@@ -111,6 +111,7 @@ local MAX_TORSO_PITCH = 0.08
 local MAX_TORSO_LIFT = 0.1
 local MAX_ARM_SWING = 0.3
 local MAX_ARM_BREATHING = 0.2
+local MAX_ARM_SPREAD = 0.3
 
 -- Max delay in seconds (maps to 0-1 delay parameter)
 local MAX_DELAY_SECONDS = 1.0
@@ -361,6 +362,9 @@ local function startPreview(motors: { [string]: Motor6D })
 		local armBreathingIntensity = paramState.ArmBreathingIntensity :: number
 		local armBreathingDelay = paramState.ArmBreathingDelay :: number
 
+		local armSpreadIntensity = paramState.ArmSpreadIntensity :: number
+		local armSpreadDelay = paramState.ArmSpreadDelay :: number
+
 		-- Calculate motion values
 		local neckPitch = MathsUtil.sin(t, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
 		local torsoPitch =
@@ -369,6 +373,8 @@ local function startPreview(motors: { [string]: Motor6D })
 		local armSwing = MathsUtil.sin(t, freq, armSwingIntensity * MAX_ARM_SWING, -armSwingDelay * MAX_DELAY_SECONDS)
 		local armBounce =
 			-MathsUtil.sin(t, freq, armBreathingIntensity * MAX_ARM_BREATHING, -armBreathingDelay * MAX_DELAY_SECONDS)
+		local armSpread =
+			-MathsUtil.sin(t, freq, armSpreadIntensity * MAX_ARM_SPREAD, -armSpreadDelay * MAX_DELAY_SECONDS)
 
 		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
@@ -389,14 +395,18 @@ local function startPreview(motors: { [string]: Motor6D })
 		if activeMotors.LeftShoulder then
 			local origC0 = originalC0Values[activeMotors.LeftShoulder]
 			if origC0 then
-				activeMotors.LeftShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+				activeMotors.LeftShoulder.C0 = origC0
+					* CFrame.new(0, armBounce, 0)
+					* CFrame.Angles(-armSpread, 0, armSwing)
 			end
 		end
 
 		if activeMotors.RightShoulder then
 			local origC0 = originalC0Values[activeMotors.RightShoulder]
 			if origC0 then
-				activeMotors.RightShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+				activeMotors.RightShoulder.C0 = origC0
+					* CFrame.new(0, armBounce, 0)
+					* CFrame.Angles(-armSpread, 0, -armSwing)
 			end
 		end
 
@@ -463,13 +473,17 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local armBreathingIntensity = state.ArmBreathingIntensity :: number
 	local armBreathingDelay = state.ArmBreathingDelay :: number
 
+	local armSpreadIntensity = state.ArmSpreadIntensity :: number
+	local armSpreadDelay = state.ArmSpreadDelay :: number
+
 	local function addKeyframe(
 		time: number,
 		neckPitch: number,
 		torsoPitch: number,
 		torsoY: number,
 		armSwing: number,
-		armBounce: number
+		armBounce: number,
+		armSpread: number
 	)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
@@ -492,12 +506,12 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local leftArmPose = Instance.new("Pose")
 		leftArmPose.Name = "Left Arm"
-		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, armSwing)
 		leftArmPose.Parent = torsoPose
 
 		local rightArmPose = Instance.new("Pose")
 		rightArmPose.Name = "Right Arm"
-		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, -armSwing)
 		rightArmPose.Parent = torsoPose
 	end
 
@@ -517,8 +531,10 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 			armBreathingIntensity * MAX_ARM_BREATHING,
 			-armBreathingDelay * MAX_DELAY_SECONDS
 		)
+		local armSpread =
+			-MathsUtil.sin(time, freq, armSpreadIntensity * MAX_ARM_SPREAD, -armSpreadDelay * MAX_DELAY_SECONDS)
 
-		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce)
+		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
 	end
 
 	do
@@ -537,8 +553,10 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 			armBreathingIntensity * MAX_ARM_BREATHING,
 			-armBreathingDelay * MAX_DELAY_SECONDS
 		)
+		local armSpread =
+			-MathsUtil.sin(time, freq, armSpreadIntensity * MAX_ARM_SPREAD, -armSpreadDelay * MAX_DELAY_SECONDS)
 
-		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce)
+		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
 	end
 
 	return seq

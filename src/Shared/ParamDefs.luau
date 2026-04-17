@@ -86,7 +86,7 @@ Params.Defs = {
 		order = 20,
 		default = 0.4,
 		min = 0.0,
-		max = 1.0,
+		max = 2.0,
 		step = 0.01,
 		unit = "",
 	} :: ParamNumberDef,
@@ -165,6 +165,29 @@ Params.Defs = {
 		label = "Arm Breathing Delay",
 		order = 33,
 		default = 0.15,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	-- Arm Spread
+	ArmSpreadIntensity = {
+		kind = "number",
+		label = "Arm Spread Intensity",
+		order = 34,
+		default = 0.2,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	ArmSpreadDelay = {
+		kind = "number",
+		label = "Arm Spread Delay",
+		order = 35,
+		default = 0.0,
 		min = 0.0,
 		max = 1.0,
 		step = 0.01,
