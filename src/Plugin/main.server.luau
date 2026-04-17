@@ -112,7 +112,7 @@ local MAX_TORSO_LIFT = 0.1
 local MAX_ARM_SWING = 0.3
 local MAX_ARM_BREATHING = 0.2
 local MAX_ARM_SPREAD = 0.3
-local MAX_NOISE = 0.05
+local MAX_NOISE = 0.1
 
 -- Max delay in seconds (maps to 0-1 delay parameter)
 local MAX_DELAY_SECONDS = 1.0
@@ -347,6 +347,8 @@ local function startPreview(motors: { [string]: Motor6D })
 
 		local freq = paramState.BreathingRate :: number
 
+		local noiseIntensity = paramState.NoiseIntensity :: number
+
 		-- Read intensity and delay for each body part
 		local headIntensity = paramState.HeadIntensity :: number
 		local headDelay = paramState.HeadDelay :: number
@@ -367,15 +369,41 @@ local function startPreview(motors: { [string]: Motor6D })
 		local armSpreadDelay = paramState.ArmSpreadDelay :: number
 
 		-- Calculate motion values
+		local noiseAmp = noiseIntensity * MAX_NOISE
+
 		local neckPitch = MathsUtil.sin(t, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
-		local torsoPitch =
-			MathsUtil.sin(t, freq, torsoPitchIntensity * MAX_TORSO_PITCH, -torsoPitchDelay * MAX_DELAY_SECONDS)
-		local torsoY = -MathsUtil.sin(t, freq, torsoLiftIntensity * MAX_TORSO_LIFT, -torsoLiftDelay * MAX_DELAY_SECONDS)
+			+ MathsUtil.noise(t * 0.5, 1) * noiseAmp -- Add noise with unique seed
+
+		local torsoPitch = MathsUtil.sin(
+			t,
+			freq,
+			torsoPitchIntensity * MAX_TORSO_PITCH,
+			-torsoPitchDelay * MAX_DELAY_SECONDS
+		) + MathsUtil.noise(t * 0.5, 2) * noiseAmp
+
+		local torsoY = -MathsUtil.sin(
+				t,
+				freq,
+				torsoLiftIntensity * MAX_TORSO_LIFT,
+				-torsoLiftDelay * MAX_DELAY_SECONDS
+			) + MathsUtil.noise(t * 0.5, 3) * noiseAmp
+
 		local armSwing = MathsUtil.sin(t, freq, armSwingIntensity * MAX_ARM_SWING, -armSwingDelay * MAX_DELAY_SECONDS)
-		local armBounce =
-			-MathsUtil.sin(t, freq, armBreathingIntensity * MAX_ARM_BREATHING, -armBreathingDelay * MAX_DELAY_SECONDS)
-		local armSpread =
-			-MathsUtil.sin(t, freq, armSpreadIntensity * MAX_ARM_SPREAD, -armSpreadDelay * MAX_DELAY_SECONDS)
+			+ MathsUtil.noise(t * 0.5, 4) * noiseAmp
+
+		local armBounce = -MathsUtil.sin(
+			t,
+			freq,
+			armBreathingIntensity * MAX_ARM_BREATHING,
+			-armBreathingDelay * MAX_DELAY_SECONDS
+		) + MathsUtil.noise(t * 0.5, 5) * noiseAmp
+
+		local armSpread = -MathsUtil.sin(
+			t,
+			freq,
+			armSpreadIntensity * MAX_ARM_SPREAD,
+			-armSpreadDelay * MAX_DELAY_SECONDS
+		) + MathsUtil.noise(t * 0.5, 6) * noiseAmp
 
 		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
