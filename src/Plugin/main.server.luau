@@ -16,6 +16,7 @@ local UserInputService = game:GetService("UserInputService")
 -----------------------------
 local MathsUtil = require(ReplicatedStorage.MotionDeckShared.MathsUtil)
 local ParamDefs = require(ReplicatedStorage.MotionDeckShared.ParamDefs)
+local Constants = require(ReplicatedStorage.MotionDeckShared.Constants)
 
 -----------------------------
 -- PLUGIN SETUP --
@@ -100,22 +101,6 @@ type FootPlantData = {
 }
 
 local footPlants: { [string]: FootPlantData } = {}
-
--- Demo bake settings
-local BAKE_DURATION_SECONDS = 4.0
-local BAKE_FPS = 60
-
--- Maximum values for intensity sliders
-local MAX_HEAD_ROTATION = 0.15
-local MAX_TORSO_PITCH = 0.08
-local MAX_TORSO_LIFT = 0.1
-local MAX_ARM_SWING = 0.3
-local MAX_ARM_BREATHING = 0.2
-local MAX_ARM_SPREAD = 0.3
-local MAX_NOISE = 0.05
-
--- Max delay in seconds (maps to 0-1 delay parameter)
-local MAX_DELAY_SECONDS = 1.0
 
 print("MotionDeck plugin loaded successfully")
 
@@ -369,43 +354,51 @@ local function startPreview(motors: { [string]: Motor6D })
 		local armSpreadDelay = paramState.ArmSpreadDelay :: number
 
 		-- Calculate motion values
-		local noiseAmp = noiseIntensity * MAX_NOISE
+		local noiseAmp = noiseIntensity * Constants.MAX_NOISE
 
 		-- Loop duration must match bake duration for preview-export fidelity
 		local loopDuration = if freq > 0 then 1 / freq else 1
 
-		local neckPitch = MathsUtil.sin(t, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
-			+ MathsUtil.loopableNoise(t, loopDuration, 1) * noiseAmp
+		local neckPitch = MathsUtil.sin(
+			t,
+			freq,
+			headIntensity * Constants.MAX_HEAD_ROTATION,
+			-headDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 1) * noiseAmp
 
 		local torsoPitch = MathsUtil.sin(
 			t,
 			freq,
-			torsoPitchIntensity * MAX_TORSO_PITCH,
-			-torsoPitchDelay * MAX_DELAY_SECONDS
+			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
+			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(t, loopDuration, 2) * noiseAmp
 
 		local torsoY = -MathsUtil.sin(
-				t,
-				freq,
-				torsoLiftIntensity * MAX_TORSO_LIFT,
-				-torsoLiftDelay * MAX_DELAY_SECONDS
-			) + MathsUtil.loopableNoise(t, loopDuration, 3) * noiseAmp
+			t,
+			freq,
+			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
+			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 3) * noiseAmp
 
-		local armSwing = MathsUtil.sin(t, freq, armSwingIntensity * MAX_ARM_SWING, -armSwingDelay * MAX_DELAY_SECONDS)
-			+ MathsUtil.loopableNoise(t, loopDuration, 4) * noiseAmp
+		local armSwing = MathsUtil.sin(
+			t,
+			freq,
+			armSwingIntensity * Constants.MAX_ARM_SWING,
+			-armSwingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 4) * noiseAmp
 
 		local armBounce = -MathsUtil.sin(
 			t,
 			freq,
-			armBreathingIntensity * MAX_ARM_BREATHING,
-			-armBreathingDelay * MAX_DELAY_SECONDS
+			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
+			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(t, loopDuration, 5) * noiseAmp
 
 		local armSpread = -MathsUtil.sin(
 			t,
 			freq,
-			armSpreadIntensity * MAX_ARM_SPREAD,
-			-armSpreadDelay * MAX_DELAY_SECONDS
+			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
+			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(t, loopDuration, 6) * noiseAmp
 
 		-- Apply motion on top of original C0 values
@@ -471,7 +464,7 @@ end
 local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles: number): number
 	local freq = state.BreathingRate :: number
 	if freq <= 0 then
-		return BAKE_DURATION_SECONDS
+		return Constants.BAKE_DURATION_SECONDS
 	end
 	return (1 / freq) * cycles
 end
@@ -490,7 +483,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local freq = state.BreathingRate :: number
 
 	local noiseIntensity = state.NoiseIntensity :: number
-	local noiseAmp = noiseIntensity * MAX_NOISE
+	local noiseAmp = noiseIntensity * Constants.MAX_NOISE
 
 	local headIntensity = state.HeadIntensity :: number
 	local headDelay = state.HeadDelay :: number
@@ -552,42 +545,46 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	for i = 0, frameCount - 1 do
 		local time = i * dt
 
-		local neckPitch = MathsUtil.sin(time, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
-			+ MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
+		local neckPitch = MathsUtil.sin(
+			time,
+			freq,
+			headIntensity * Constants.MAX_HEAD_ROTATION,
+			-headDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
 
 		local torsoPitch = MathsUtil.sin(
 			time,
 			freq,
-			torsoPitchIntensity * MAX_TORSO_PITCH,
-			-torsoPitchDelay * MAX_DELAY_SECONDS
+			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
+			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 2) * noiseAmp
 
 		local torsoY = -MathsUtil.sin(
 			time,
 			freq,
-			torsoLiftIntensity * MAX_TORSO_LIFT,
-			-torsoLiftDelay * MAX_DELAY_SECONDS
+			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
+			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 3) * noiseAmp
 
 		local armSwing = MathsUtil.sin(
 			time,
 			freq,
-			armSwingIntensity * MAX_ARM_SWING,
-			-armSwingDelay * MAX_DELAY_SECONDS
+			armSwingIntensity * Constants.MAX_ARM_SWING,
+			-armSwingDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 4) * noiseAmp
 
 		local armBounce = -MathsUtil.sin(
 			time,
 			freq,
-			armBreathingIntensity * MAX_ARM_BREATHING,
-			-armBreathingDelay * MAX_DELAY_SECONDS
+			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
+			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 5) * noiseAmp
 
 		local armSpread = -MathsUtil.sin(
 			time,
 			freq,
-			armSpreadIntensity * MAX_ARM_SPREAD,
-			-armSpreadDelay * MAX_DELAY_SECONDS
+			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
+			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 6) * noiseAmp
 
 		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
@@ -596,42 +593,46 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	do
 		local time = duration
 
-		local neckPitch = MathsUtil.sin(time, freq, headIntensity * MAX_HEAD_ROTATION, -headDelay * MAX_DELAY_SECONDS)
-			+ MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
+		local neckPitch = MathsUtil.sin(
+			time,
+			freq,
+			headIntensity * Constants.MAX_HEAD_ROTATION,
+			-headDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
 
 		local torsoPitch = MathsUtil.sin(
 			time,
 			freq,
-			torsoPitchIntensity * MAX_TORSO_PITCH,
-			-torsoPitchDelay * MAX_DELAY_SECONDS
+			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
+			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 2) * noiseAmp
 
 		local torsoY = -MathsUtil.sin(
 			time,
 			freq,
-			torsoLiftIntensity * MAX_TORSO_LIFT,
-			-torsoLiftDelay * MAX_DELAY_SECONDS
+			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
+			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 3) * noiseAmp
 
 		local armSwing = MathsUtil.sin(
 			time,
 			freq,
-			armSwingIntensity * MAX_ARM_SWING,
-			-armSwingDelay * MAX_DELAY_SECONDS
+			armSwingIntensity * Constants.MAX_ARM_SWING,
+			-armSwingDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 4) * noiseAmp
 
 		local armBounce = -MathsUtil.sin(
 			time,
 			freq,
-			armBreathingIntensity * MAX_ARM_BREATHING,
-			-armBreathingDelay * MAX_DELAY_SECONDS
+			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
+			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 5) * noiseAmp
 
 		local armSpread = -MathsUtil.sin(
 			time,
 			freq,
-			armSpreadIntensity * MAX_ARM_SPREAD,
-			-armSpreadDelay * MAX_DELAY_SECONDS
+			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
+			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(time, duration, 6) * noiseAmp
 
 		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
@@ -939,7 +940,7 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 	stopPreview()
 
 	local duration = getLoopDurationFromBreathing(paramState, 1)
-	local seq = bakeKeyframeSequence(paramState, duration, BAKE_FPS)
+	local seq = bakeKeyframeSequence(paramState, duration, Constants.BAKE_FPS)
 	local exported = exportKeyframeSequence(seq, activeModel.Name)
 
 	setStatus("Baked and exported animation")
