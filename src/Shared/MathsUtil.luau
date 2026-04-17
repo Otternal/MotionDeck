@@ -25,8 +25,6 @@ function MathsUtil.loopableNoise(t: number, duration: number, seed: number?): nu
 	-- Map time to angle around a circle (0 to 2π over one loop)
 	local angle = (t / duration) * MathsUtil.tau
 
-	-- Use a small radius so we sample less noise variation
-	-- Smaller radius = gentler noise
 	local radius = 0.5
 
 	local x = math.cos(angle) * radius
