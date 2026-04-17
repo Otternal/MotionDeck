@@ -16,6 +16,8 @@ local UserInputService = game:GetService("UserInputService")
 -----------------------------
 local MathsUtil = require(ReplicatedStorage.MotionDeckShared.MathsUtil)
 local ParamDefs = require(ReplicatedStorage.MotionDeckShared.ParamDefs)
+local Constants = require(ReplicatedStorage.MotionDeckShared.Constants)
+local LegIK = require(ReplicatedStorage.MotionDeckShared.LegIK)
 
 -----------------------------
 -- PLUGIN SETUP --
@@ -93,20 +95,7 @@ local lastSelectedModel: Model? = nil
 local currentTrack: AnimationTrack? = nil
 local originalC0Values: { [Motor6D]: CFrame } = {}
 
-type FootPlantData = {
-	motor: Motor6D,
-	legPart: BasePart,
-	targetWorld: Vector3,
-}
-
-local footPlants: { [string]: FootPlantData } = {}
-
--- Demo bake settings
-local BAKE_DURATION_SECONDS = 4.0
-local BAKE_FPS = 60
-
--- Neck motion delay
-local NECK_LAG = 0.35
+local footPlants: { [string]: LegIK.FootPlantData } = {}
 
 print("MotionDeck plugin loaded successfully")
 
@@ -203,59 +192,6 @@ local function getR6PartsFromCharacter(model: Model): { [string]: BasePart }
 	return parts
 end
 
-local function getLegBottomWorldPosition(legPart: BasePart): Vector3
-	return (legPart.CFrame * CFrame.new(0, -legPart.Size.Y * 0.5, 0)).Position
-end
-
-local function solveR6PlantedLeg(hipMotor: Motor6D, legPart: BasePart, targetWorld: Vector3, originalHipC0: CFrame)
-	local part0 = hipMotor.Part0
-	if not part0 then
-		return
-	end
-
-	local hipWorld = (part0.CFrame * originalHipC0).Position
-
-	local torsoCenter = part0.Position
-	local hipToCenter = (torsoCenter - hipWorld) * Vector3.new(1, 0, 1)
-	local adjustedHipWorld = hipWorld + hipToCenter * 0.5
-	local toTarget = targetWorld - adjustedHipWorld
-	local distance = toTarget.Magnitude
-
-	if distance < 1e-4 then
-		hipMotor.C0 = originalHipC0
-		return
-	end
-
-	local legLength = legPart.Size.Y
-
-	if distance > legLength * 0.99 then
-		distance = legLength * 0.99
-	end
-
-	local legDirection = toTarget.Unit
-
-	local desiredCenter = adjustedHipWorld + legDirection * (legLength * 0.5)
-
-	local legFront = part0.CFrame.RightVector
-
-	local legUp = -legDirection
-
-	local legRight = legFront:Cross(legUp)
-	if legRight.Magnitude < 1e-4 then
-		legFront = part0.CFrame.LookVector
-		legRight = legFront:Cross(legUp)
-	end
-	legRight = legRight.Unit
-
-	legFront = legUp:Cross(legRight)
-
-	local desiredLegWorld = CFrame.fromMatrix(desiredCenter, legRight, legUp, -legFront)
-
-	local newC0 = part0.CFrame:ToObjectSpace(desiredLegWorld * hipMotor.C1)
-
-	hipMotor.C0 = newC0
-end
-
 local function getOrCreateAnimator(model: Model): Animator?
 	local humanoidInst = model:FindFirstChildOfClass("Humanoid")
 	if not humanoidInst or not humanoidInst:IsA("Humanoid") then
@@ -316,7 +252,7 @@ local function startPreview(motors: { [string]: Motor6D })
 			footPlants.Left = {
 				motor = motors.LeftHip,
 				legPart = parts.LeftLeg,
-				targetWorld = getLegBottomWorldPosition(parts.LeftLeg),
+				targetWorld = LegIK.getLegBottomWorldPosition(parts.LeftLeg),
 			}
 		end
 
@@ -324,7 +260,7 @@ local function startPreview(motors: { [string]: Motor6D })
 			footPlants.Right = {
 				motor = motors.RightHip,
 				legPart = parts.RightLeg,
-				targetWorld = getLegBottomWorldPosition(parts.RightLeg),
+				targetWorld = LegIK.getLegBottomWorldPosition(parts.RightLeg),
 			}
 		end
 	end
@@ -336,29 +272,76 @@ local function startPreview(motors: { [string]: Motor6D })
 		local timeSpeed = paramState.TimeSpeed :: number
 		t += dt * timeSpeed
 
-		local neckFreq = paramState.NeckPitchFreq :: number
-		local neckAmp = paramState.NeckPitchAmp :: number
-		local neckPhase = paramState.NeckPitchPhase :: number
+		local freq = paramState.BreathingRate :: number
 
-		local rootFreq = paramState.RootRollFreq :: number
-		local rootAmp = paramState.RootRollAmp :: number
-		local rootPhase = paramState.RootRollPhase :: number
+		local noiseIntensity = paramState.NoiseIntensity :: number
 
-		local torsoPitchAmp = paramState.TorsoPitchAmp :: number
-		local torsoYAmp = paramState.TorsoYAmp :: number
+		-- Read intensity and delay for each body part
+		local headIntensity = paramState.HeadIntensity :: number
+		local headDelay = paramState.HeadDelay :: number
 
-		local armFreq = paramState.ArmSwingFreq :: number
-		local armAmp = paramState.ArmSwingAmp :: number
-		local armPhase = paramState.ArmSwingPhase :: number
-		local armBounceFactor = paramState.ArmBounceFactor :: number
+		local torsoPitchIntensity = paramState.TorsoPitchIntensity :: number
+		local torsoPitchDelay = paramState.TorsoPitchDelay :: number
+
+		local torsoLiftIntensity = paramState.TorsoLiftIntensity :: number
+		local torsoLiftDelay = paramState.TorsoLiftDelay :: number
+
+		local armSwingIntensity = paramState.ArmSwingIntensity :: number
+		local armSwingDelay = paramState.ArmSwingDelay :: number
+
+		local armBreathingIntensity = paramState.ArmBreathingIntensity :: number
+		local armBreathingDelay = paramState.ArmBreathingDelay :: number
+
+		local armSpreadIntensity = paramState.ArmSpreadIntensity :: number
+		local armSpreadDelay = paramState.ArmSpreadDelay :: number
 
 		-- Calculate motion values
-		local neckPitch = MathsUtil.sin(t, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(t, rootFreq, rootAmp, rootPhase)
-		local torsoPitch = MathsUtil.sin(t, neckFreq, torsoPitchAmp, neckPhase)
-		local torsoY = -MathsUtil.sin(t, neckFreq, torsoYAmp, neckPhase)
-		local armSwing = MathsUtil.sin(t, armFreq, armAmp, armPhase)
-		local armBounce = -MathsUtil.sin(t, neckFreq, armBounceFactor * 0.15, neckPhase)
+		local noiseAmp = noiseIntensity * Constants.MAX_NOISE
+
+		-- Loop duration must match bake duration for preview-export fidelity
+		local loopDuration = if freq > 0 then 1 / freq else 1
+
+		local neckPitch = MathsUtil.sin(
+			t,
+			freq,
+			headIntensity * Constants.MAX_HEAD_ROTATION,
+			-headDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 1) * noiseAmp
+
+		local torsoPitch = MathsUtil.sin(
+			t,
+			freq,
+			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
+			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 2) * noiseAmp
+
+		local torsoY = -MathsUtil.sin(
+			t,
+			freq,
+			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
+			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 3) * noiseAmp
+
+		local armSwing = MathsUtil.sin(
+			t,
+			freq,
+			armSwingIntensity * Constants.MAX_ARM_SWING,
+			-armSwingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 4) * noiseAmp
+
+		local armBounce = -MathsUtil.sin(
+			t,
+			freq,
+			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
+			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 5) * noiseAmp
+
+		local armSpread = -MathsUtil.sin(
+			t,
+			freq,
+			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
+			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(t, loopDuration, 6) * noiseAmp
 
 		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
@@ -371,29 +354,33 @@ local function startPreview(motors: { [string]: Motor6D })
 		if activeMotors.RootJoint then
 			local origC0 = originalC0Values[activeMotors.RootJoint]
 			if origC0 then
-				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 			end
 		end
 
 		if activeMotors.LeftShoulder then
 			local origC0 = originalC0Values[activeMotors.LeftShoulder]
 			if origC0 then
-				activeMotors.LeftShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+				activeMotors.LeftShoulder.C0 = origC0
+					* CFrame.new(0, armBounce, 0)
+					* CFrame.Angles(-armSpread, 0, armSwing)
 			end
 		end
 
 		if activeMotors.RightShoulder then
 			local origC0 = originalC0Values[activeMotors.RightShoulder]
 			if origC0 then
-				activeMotors.RightShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+				activeMotors.RightShoulder.C0 = origC0
+					* CFrame.new(0, armBounce, 0)
+					* CFrame.Angles(-armSpread, 0, -armSwing)
 			end
 		end
 
-		-- Apply leg IK
+		-- Leg IK
 		if footPlants.Left and activeMotors.LeftHip then
 			local origHipC0 = originalC0Values[activeMotors.LeftHip]
 			if origHipC0 then
-				solveR6PlantedLeg(
+				LegIK.solveR6PlantedLeg(
 					footPlants.Left.motor,
 					footPlants.Left.legPart,
 					footPlants.Left.targetWorld,
@@ -405,7 +392,7 @@ local function startPreview(motors: { [string]: Motor6D })
 		if footPlants.Right and activeMotors.RightHip then
 			local origHipC0 = originalC0Values[activeMotors.RightHip]
 			if origHipC0 then
-				solveR6PlantedLeg(
+				LegIK.solveR6PlantedLeg(
 					footPlants.Right.motor,
 					footPlants.Right.legPart,
 					footPlants.Right.targetWorld,
@@ -417,38 +404,11 @@ local function startPreview(motors: { [string]: Motor6D })
 end
 
 local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles: number): number
-	local neckFreq = state.NeckPitchFreq :: number
-	local rootFreq = state.RootRollFreq :: number
-
-	if neckFreq <= 0 or rootFreq <= 0 then
-		return BAKE_DURATION_SECONDS
+	local freq = state.BreathingRate :: number
+	if freq <= 0 then
+		return Constants.BAKE_DURATION_SECONDS
 	end
-
-	local neckPeriod = 1 / neckFreq
-	local rootPeriod = 1 / rootFreq
-
-	-- Greatest common divisor
-	local function gcd(a: number, b: number): number
-		while b > 0.0001 do
-			a, b = b, a % b
-		end
-		return a
-	end
-
-	-- Lowest common multiple
-	local function lcm(a: number, b: number): number
-		return (a * b) / gcd(a, b)
-	end
-
-	local duration = lcm(neckPeriod, rootPeriod) * cycles
-
-	-- Ensures animations aren't too long
-	if duration > 30 then
-		warn("MotionDeck: Frequency combination creates a very long loop. Using fallback duration.")
-		return math.max(neckPeriod, rootPeriod) * cycles
-	end
-
-	return duration
+	return (1 / freq) * cycles
 end
 
 -- Bake duration is taken from the breathing frequency
@@ -462,36 +422,42 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local dt = 1 / fps
 
 	-- Read params
-	local neckFreq = state.NeckPitchFreq :: number
-	local neckAmp = state.NeckPitchAmp :: number
-	local neckPhase = state.NeckPitchPhase :: number
+	local freq = state.BreathingRate :: number
 
-	local rootFreq = state.RootRollFreq :: number
-	local rootAmp = state.RootRollAmp :: number
-	local rootPhase = state.RootRollPhase :: number
+	local noiseIntensity = state.NoiseIntensity :: number
+	local noiseAmp = noiseIntensity * Constants.MAX_NOISE
 
-	local torsoPitchAmp = state.TorsoPitchAmp :: number
-	local torsoYAmp = state.TorsoYAmp :: number
+	local headIntensity = state.HeadIntensity :: number
+	local headDelay = state.HeadDelay :: number
 
-	local armFreq = state.ArmSwingFreq :: number
-	local armAmp = state.ArmSwingAmp :: number
-	local armPhase = state.ArmSwingPhase :: number
-	local armBounceFactor = state.ArmBounceFactor :: number
+	local torsoPitchIntensity = state.TorsoPitchIntensity :: number
+	local torsoPitchDelay = state.TorsoPitchDelay :: number
+
+	local torsoLiftIntensity = state.TorsoLiftIntensity :: number
+	local torsoLiftDelay = state.TorsoLiftDelay :: number
+
+	local armSwingIntensity = state.ArmSwingIntensity :: number
+	local armSwingDelay = state.ArmSwingDelay :: number
+
+	local armBreathingIntensity = state.ArmBreathingIntensity :: number
+	local armBreathingDelay = state.ArmBreathingDelay :: number
+
+	local armSpreadIntensity = state.ArmSpreadIntensity :: number
+	local armSpreadDelay = state.ArmSpreadDelay :: number
 
 	local function addKeyframe(
 		time: number,
 		neckPitch: number,
-		rootRoll: number,
 		torsoPitch: number,
 		torsoY: number,
 		armSwing: number,
-		armBounce: number
+		armBounce: number,
+		armSpread: number
 	)
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
 
-		-- Pose hierarchy
 		local hrpPose = Instance.new("Pose")
 		hrpPose.Name = "HumanoidRootPart"
 		hrpPose.CFrame = CFrame.identity
@@ -499,7 +465,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local torsoPose = Instance.new("Pose")
 		torsoPose.Name = "Torso"
-		torsoPose.CFrame = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, rootRoll)
+		torsoPose.CFrame = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 		torsoPose.Parent = hrpPose
 
 		local headPose = Instance.new("Pose")
@@ -509,39 +475,109 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local leftArmPose = Instance.new("Pose")
 		leftArmPose.Name = "Left Arm"
-		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, armSwing)
 		leftArmPose.Parent = torsoPose
 
 		local rightArmPose = Instance.new("Pose")
 		rightArmPose.Name = "Right Arm"
-		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, -armSwing)
 		rightArmPose.Parent = torsoPose
 	end
 
 	for i = 0, frameCount - 1 do
 		local time = i * dt
 
-		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
-		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
-		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
-		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
-		local armBounce = math.abs(armSwing) * armBounceFactor
+		local neckPitch = MathsUtil.sin(
+			time,
+			freq,
+			headIntensity * Constants.MAX_HEAD_ROTATION,
+			-headDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
+		local torsoPitch = MathsUtil.sin(
+			time,
+			freq,
+			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
+			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 2) * noiseAmp
+
+		local torsoY = -MathsUtil.sin(
+			time,
+			freq,
+			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
+			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 3) * noiseAmp
+
+		local armSwing = MathsUtil.sin(
+			time,
+			freq,
+			armSwingIntensity * Constants.MAX_ARM_SWING,
+			-armSwingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 4) * noiseAmp
+
+		local armBounce = -MathsUtil.sin(
+			time,
+			freq,
+			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
+			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 5) * noiseAmp
+
+		local armSpread = -MathsUtil.sin(
+			time,
+			freq,
+			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
+			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 6) * noiseAmp
+
+		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
 	end
 
 	do
 		local time = duration
 
-		local neckPitch = MathsUtil.sin(time, neckFreq, neckAmp, neckPhase - NECK_LAG)
-		local rootRoll = MathsUtil.sin(time, rootFreq, rootAmp, rootPhase)
-		local torsoPitch = MathsUtil.sin(time, neckFreq, torsoPitchAmp, neckPhase)
-		local torsoY = -MathsUtil.sin(time, neckFreq, torsoYAmp, neckPhase)
-		local armSwing = MathsUtil.sin(time, armFreq, armAmp, armPhase)
-		local armBounce = math.abs(armSwing) * armBounceFactor
+		local neckPitch = MathsUtil.sin(
+			time,
+			freq,
+			headIntensity * Constants.MAX_HEAD_ROTATION,
+			-headDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
 
-		addKeyframe(time, neckPitch, rootRoll, torsoPitch, torsoY, armSwing, armBounce)
+		local torsoPitch = MathsUtil.sin(
+			time,
+			freq,
+			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
+			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 2) * noiseAmp
+
+		local torsoY = -MathsUtil.sin(
+			time,
+			freq,
+			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
+			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 3) * noiseAmp
+
+		local armSwing = MathsUtil.sin(
+			time,
+			freq,
+			armSwingIntensity * Constants.MAX_ARM_SWING,
+			-armSwingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 4) * noiseAmp
+
+		local armBounce = -MathsUtil.sin(
+			time,
+			freq,
+			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
+			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 5) * noiseAmp
+
+		local armSpread = -MathsUtil.sin(
+			time,
+			freq,
+			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
+			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 6) * noiseAmp
+
+		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
 	end
 
 	return seq
@@ -771,7 +807,7 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 
 	local layout = paramsScroll:FindFirstChildOfClass("UIListLayout")
 	if layout then
-		paramsScroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+		paramsScroll.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y)
 	else
 		warn("MotionDeck: No UIListLayout found in paramsScroll")
 	end
@@ -846,7 +882,7 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 	stopPreview()
 
 	local duration = getLoopDurationFromBreathing(paramState, 1)
-	local seq = bakeKeyframeSequence(paramState, duration, BAKE_FPS)
+	local seq = bakeKeyframeSequence(paramState, duration, Constants.BAKE_FPS)
 	local exported = exportKeyframeSequence(seq, activeModel.Name)
 
 	setStatus("Baked and exported animation")

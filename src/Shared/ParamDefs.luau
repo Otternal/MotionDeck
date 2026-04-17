@@ -33,147 +33,173 @@ export type ParamState = { [ParamId]: number | boolean }
 local Params = {}
 
 Params.Defs = {
-	-- Time/preview controls
+	-- Global
 	TimeSpeed = {
 		kind = "number",
 		label = "Preview Speed",
 		order = 1,
 		default = 1.0,
-		min = 0.0,
+		min = 0.1,
 		max = 3.0,
-		step = 0.01,
+		step = 0.1,
 		unit = "x",
 	} :: ParamNumberDef,
 
-	-- Breathing (Neck)
-	NeckPitchFreq = {
+	BreathingRate = {
 		kind = "number",
-		label = "Neck Pitch Frequency",
+		label = "Breathing Rate",
+		order = 2,
+		default = 0.25,
+		min = 0.125,
+		max = 1.0,
+		step = 0.125,
+		unit = "Hz",
+	} :: ParamNumberDef,
+
+	-- Head
+	HeadIntensity = {
+		kind = "number",
+		label = "Head Intensity",
 		order = 10,
-		default = 0.25,
-		min = 0.125,
-		max = 2.0,
-		step = 0.125,
-		unit = "Hz",
+		default = 0.5,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
 	} :: ParamNumberDef,
 
-	NeckPitchAmp = {
+	HeadDelay = {
 		kind = "number",
-		label = "Neck Pitch Amplitude",
+		label = "Head Delay",
 		order = 11,
-		default = 0.06,
+		default = 0.85,
 		min = 0.0,
-		max = 0.25,
-		step = 0.001,
-		unit = "rad",
-	} :: ParamNumberDef,
-
-	NeckPitchPhase = {
-		kind = "number",
-		label = "Neck Pitch Phase",
-		order = 12,
-		default = 0.0,
-		min = -math.pi,
-		max = math.pi,
+		max = 1.0,
 		step = 0.01,
-		unit = "rad",
+		unit = "",
 	} :: ParamNumberDef,
 
-	-- Torso sway
-	RootRollFreq = {
+	-- Torso Pitch
+	TorsoPitchIntensity = {
 		kind = "number",
-		label = "Root Roll Frequency",
+		label = "Torso Pitch Intensity",
 		order = 20,
-		default = 0.25,
-		min = 0.125,
+		default = 0.4,
+		min = 0.0,
 		max = 2.0,
-		step = 0.125,
-		unit = "Hz",
+		step = 0.01,
+		unit = "",
 	} :: ParamNumberDef,
 
-	RootRollAmp = {
+	TorsoPitchDelay = {
 		kind = "number",
-		label = "Root Roll Amplitude",
+		label = "Torso Pitch Delay",
 		order = 21,
-		default = 0.04,
+		default = 0.5,
 		min = 0.0,
-		max = 0.25,
-		step = 0.001,
-		unit = "rad",
+		max = 1.0,
+		step = 0.01,
+		unit = "",
 	} :: ParamNumberDef,
 
-	RootRollPhase = {
+	-- Torso Lift
+	TorsoLiftIntensity = {
 		kind = "number",
-		label = "Root Roll Phase",
+		label = "Torso Lift Intensity",
 		order = 22,
-		default = 0.0,
-		min = -math.pi,
-		max = math.pi,
+		default = 0.4,
+		min = 0.0,
+		max = 1.0,
 		step = 0.01,
-		unit = "rad",
+		unit = "",
 	} :: ParamNumberDef,
 
-	TorsoPitchAmp = {
+	TorsoLiftDelay = {
 		kind = "number",
-		label = "Torso Pitch Amplitude",
-		order = 13,
-		default = 0.03,
+		label = "Torso Lift Delay",
+		order = 23,
+		default = 0.0,
 		min = 0.0,
-		max = 0.20,
-		step = 0.001,
-		unit = "rad",
+		max = 1.0,
+		step = 0.01,
+		unit = "",
 	} :: ParamNumberDef,
 
-	TorsoYAmp = {
+	-- Arm Swing
+	ArmSwingIntensity = {
 		kind = "number",
-		label = "Torso Y Amplitude",
-		order = 14,
-		default = 0.03,
-		min = 0.0,
-		max = 0.20,
-		step = 0.001,
-		unit = "stud",
-	} :: ParamNumberDef,
-
-	-- Arm sway
-	ArmSwingFreq = {
-		kind = "number",
-		label = "Arm Swing Frequency",
+		label = "Arm Swing Intensity",
 		order = 30,
-		default = 0.25,
-		min = 0.125,
-		max = 2.0,
-		step = 0.125,
-		unit = "Hz",
-	} :: ParamNumberDef,
-
-	ArmSwingAmp = {
-		kind = "number",
-		label = "Arm Swing Amplitude",
-		order = 31,
-		default = 0.08,
-		min = 0.0,
-		max = 0.4,
-		step = 0.001,
-		unit = "rad",
-	} :: ParamNumberDef,
-
-	ArmSwingPhase = {
-		kind = "number",
-		label = "Arm Swing Phase",
-		order = 32,
-		default = 0.0,
-		min = -math.pi,
-		max = math.pi,
-		step = 0.01,
-		unit = "rad",
-	} :: ParamNumberDef,
-
-	ArmBounceFactor = {
-		kind = "number",
-		label = "Arm Breathing Amplitude",
-		order = 33,
 		default = 0.3,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	ArmSwingDelay = {
+		kind = "number",
+		label = "Arm Swing Delay",
+		order = 31,
+		default = 0.85,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	-- Arm Breathing
+	ArmBreathingIntensity = {
+		kind = "number",
+		label = "Arm Breathing Intensity",
+		order = 32,
+		default = 0.3,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	ArmBreathingDelay = {
+		kind = "number",
+		label = "Arm Breathing Delay",
+		order = 33,
+		default = 0.15,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	-- Arm Spread
+	ArmSpreadIntensity = {
+		kind = "number",
+		label = "Arm Spread Intensity",
+		order = 34,
+		default = 0.2,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	ArmSpreadDelay = {
+		kind = "number",
+		label = "Arm Spread Delay",
+		order = 35,
+		default = 0.3,
+		min = 0.0,
+		max = 1.0,
+		step = 0.01,
+		unit = "",
+	} :: ParamNumberDef,
+
+	-- Noise
+	NoiseIntensity = {
+		kind = "number",
+		label = "Motion Randomness",
+		order = 40,
+		default = 0.0,
 		min = 0.0,
 		max = 1.0,
 		step = 0.01,
@@ -184,7 +210,7 @@ Params.Defs = {
 	EnablePreview = {
 		kind = "bool",
 		label = "Enable Preview",
-		order = 2,
+		order = 3,
 		default = true,
 	} :: ParamBoolDef,
 } :: { [ParamId]: ParamDef }
