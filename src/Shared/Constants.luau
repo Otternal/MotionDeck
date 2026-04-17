@@ -15,6 +15,9 @@ Constants.MAX_NOISE = 0.05 -- Max noise amplitude
 -- Max delay in seconds
 Constants.MAX_DELAY_SECONDS = 1.0
 
+-- Leg IK tuning
+Constants.HIP_CENTER_ADJUSTMENT = 0.5
+
 -- Bake settings
 Constants.BAKE_DURATION_SECONDS = 4.0 -- Fallback duration
 Constants.BAKE_FPS = 60 -- Frames per second
