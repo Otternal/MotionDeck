@@ -1,0 +1,3 @@
+local PoseSnapshot = {}
+
+return PoseSnapshot
