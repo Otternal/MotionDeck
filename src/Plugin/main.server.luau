@@ -389,14 +389,14 @@ local function startPreview(motors: { [string]: Motor6D })
 		if activeMotors.LeftShoulder then
 			local origC0 = originalC0Values[activeMotors.LeftShoulder]
 			if origC0 then
-				activeMotors.LeftShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+				activeMotors.LeftShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
 			end
 		end
 
 		if activeMotors.RightShoulder then
 			local origC0 = originalC0Values[activeMotors.RightShoulder]
 			if origC0 then
-				activeMotors.RightShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+				activeMotors.RightShoulder.C0 = origC0 * CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
 			end
 		end
 
@@ -492,12 +492,12 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local leftArmPose = Instance.new("Pose")
 		leftArmPose.Name = "Left Arm"
-		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
+		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
 		leftArmPose.Parent = torsoPose
 
 		local rightArmPose = Instance.new("Pose")
 		rightArmPose.Name = "Right Arm"
-		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, armSwing)
+		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(0, 0, -armSwing)
 		rightArmPose.Parent = torsoPose
 	end
 

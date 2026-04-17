@@ -79,7 +79,7 @@ Params.Defs = {
 		unit = "",
 	} :: ParamNumberDef,
 
-	-- Torso Pitch (forward/back rotation)
+	-- Torso Pitch
 	TorsoPitchIntensity = {
 		kind = "number",
 		label = "Torso Pitch Intensity",
@@ -102,7 +102,7 @@ Params.Defs = {
 		unit = "",
 	} :: ParamNumberDef,
 
-	-- Torso Lift (up/down translation)
+	-- Torso Lift
 	TorsoLiftIntensity = {
 		kind = "number",
 		label = "Torso Lift Intensity",
@@ -125,7 +125,7 @@ Params.Defs = {
 		unit = "",
 	} :: ParamNumberDef,
 
-	-- Arm Swing (side-to-side rotation)
+	-- Arm Swing
 	ArmSwingIntensity = {
 		kind = "number",
 		label = "Arm Swing Intensity",
@@ -148,7 +148,7 @@ Params.Defs = {
 		unit = "",
 	} :: ParamNumberDef,
 
-	-- Arm Breathing (up/down translation)
+	-- Arm Breathing
 	ArmBreathingIntensity = {
 		kind = "number",
 		label = "Arm Breathing Intensity",
