@@ -112,6 +112,7 @@ local MAX_TORSO_LIFT = 0.1
 local MAX_ARM_SWING = 0.3
 local MAX_ARM_BREATHING = 0.2
 local MAX_ARM_SPREAD = 0.3
+local MAX_NOISE = 0.05
 
 -- Max delay in seconds (maps to 0-1 delay parameter)
 local MAX_DELAY_SECONDS = 1.0

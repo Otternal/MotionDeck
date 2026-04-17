@@ -15,4 +15,10 @@ function MathsUtil.sin(t: number, freq: number, amp: number, phase: number?): nu
 	return math.sin(MathsUtil.tau * freq * t + (phase or 0)) * amp
 end
 
+-- Perlin noise helper
+-- Provides a smooth random value between -1 and 1
+function MathsUtil.noise(t: number, seed: number?): number
+	return math.noise(t, seed or 0, 0)
+end
+
 return MathsUtil
