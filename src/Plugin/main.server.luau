@@ -18,6 +18,7 @@ local MathsUtil = require(ReplicatedStorage.MotionDeckShared.MathsUtil)
 local ParamDefs = require(ReplicatedStorage.MotionDeckShared.ParamDefs)
 local Constants = require(ReplicatedStorage.MotionDeckShared.Constants)
 local LegIK = require(ReplicatedStorage.MotionDeckShared.LegIK)
+local PoseSnapshot = require(ReplicatedStorage.MotionDeckShared.PoseSnapshot)
 
 -----------------------------
 -- PLUGIN SETUP --
@@ -70,6 +71,8 @@ local previewFrame = getRequiredFrame(ui, "PreviewFrame")
 -- Rig section
 local targetLabel = rigFrame:WaitForChild("TargetLabel") :: TextLabel
 local useSelectedBtn = rigFrame:WaitForChild("RigButton") :: TextButton
+local capturePoseBtn = rigFrame:WaitForChild("CapturePoseButton") :: TextButton
+local resetPoseBtn = rigFrame:WaitForChild("ResetPoseButton") :: TextButton
 
 -- Sliders section
 local paramsScroll = sliderFrame:WaitForChild("ScrollingFrame") :: ScrollingFrame
@@ -347,30 +350,37 @@ local function startPreview(motors: { [string]: Motor6D })
 		if activeMotors.Neck then
 			local origC0 = originalC0Values[activeMotors.Neck]
 			if origC0 then
-				activeMotors.Neck.C0 = origC0 * CFrame.Angles(neckPitch, 0, 0)
+				local baseC0 = PoseSnapshot.getBaseC0("Neck", origC0)
+				activeMotors.Neck.C0 = baseC0 * CFrame.Angles(neckPitch, 0, 0)
 			end
 		end
 
+		-- RootJoint
 		if activeMotors.RootJoint then
 			local origC0 = originalC0Values[activeMotors.RootJoint]
 			if origC0 then
-				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
+				local baseC0 = PoseSnapshot.getBaseC0("RootJoint", origC0)
+				activeMotors.RootJoint.C0 = baseC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 			end
 		end
 
+		-- LeftShoulder
 		if activeMotors.LeftShoulder then
 			local origC0 = originalC0Values[activeMotors.LeftShoulder]
 			if origC0 then
-				activeMotors.LeftShoulder.C0 = origC0
+				local baseC0 = PoseSnapshot.getBaseC0("LeftShoulder", origC0)
+				activeMotors.LeftShoulder.C0 = baseC0
 					* CFrame.new(0, armBounce, 0)
 					* CFrame.Angles(-armSpread, 0, armSwing)
 			end
 		end
 
+		-- RightShoulder
 		if activeMotors.RightShoulder then
 			local origC0 = originalC0Values[activeMotors.RightShoulder]
 			if origC0 then
-				activeMotors.RightShoulder.C0 = origC0
+				local baseC0 = PoseSnapshot.getBaseC0("RightShoulder", origC0)
+				activeMotors.RightShoulder.C0 = baseC0
 					* CFrame.new(0, armBounce, 0)
 					* CFrame.Angles(-armSpread, 0, -armSwing)
 			end
@@ -380,11 +390,12 @@ local function startPreview(motors: { [string]: Motor6D })
 		if footPlants.Left and activeMotors.LeftHip then
 			local origHipC0 = originalC0Values[activeMotors.LeftHip]
 			if origHipC0 then
+				local baseHipC0 = PoseSnapshot.getBaseC0("LeftHip", origHipC0)
 				LegIK.solveR6PlantedLeg(
 					footPlants.Left.motor,
 					footPlants.Left.legPart,
 					footPlants.Left.targetWorld,
-					origHipC0
+					baseHipC0
 				)
 			end
 		end
@@ -392,11 +403,12 @@ local function startPreview(motors: { [string]: Motor6D })
 		if footPlants.Right and activeMotors.RightHip then
 			local origHipC0 = originalC0Values[activeMotors.RightHip]
 			if origHipC0 then
+				local baseHipC0 = PoseSnapshot.getBaseC0("RightHip", origHipC0)
 				LegIK.solveR6PlantedLeg(
 					footPlants.Right.motor,
 					footPlants.Right.legPart,
 					footPlants.Right.targetWorld,
-					origHipC0
+					baseHipC0
 				)
 			end
 		end
@@ -458,6 +470,20 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		kf.Time = time
 		kf.Parent = seq
 
+		local function getPoseOffset(motorName: string): CFrame
+			if not activeModel then
+				return CFrame.identity
+			end
+			local motors = getR6MotorsFromCharacter(activeModel)
+			local motor = motors[motorName]
+			if not motor then
+				return CFrame.identity
+			end
+			local originalC0 = originalC0Values[motor] or motor.C0
+			local baseC0 = PoseSnapshot.getBaseC0(motorName, originalC0)
+			return originalC0:ToObjectSpace(baseC0)
+		end
+
 		local hrpPose = Instance.new("Pose")
 		hrpPose.Name = "HumanoidRootPart"
 		hrpPose.CFrame = CFrame.identity
@@ -465,23 +491,39 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local torsoPose = Instance.new("Pose")
 		torsoPose.Name = "Torso"
-		torsoPose.CFrame = CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
+		torsoPose.CFrame = getPoseOffset("RootJoint") * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 		torsoPose.Parent = hrpPose
 
 		local headPose = Instance.new("Pose")
 		headPose.Name = "Head"
-		headPose.CFrame = CFrame.Angles(neckPitch, 0, 0)
+		headPose.CFrame = getPoseOffset("Neck") * CFrame.Angles(neckPitch, 0, 0)
 		headPose.Parent = torsoPose
 
 		local leftArmPose = Instance.new("Pose")
 		leftArmPose.Name = "Left Arm"
-		leftArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, armSwing)
+		leftArmPose.CFrame = getPoseOffset("LeftShoulder")
+			* CFrame.new(0, armBounce, 0)
+			* CFrame.Angles(-armSpread, 0, armSwing)
 		leftArmPose.Parent = torsoPose
 
 		local rightArmPose = Instance.new("Pose")
 		rightArmPose.Name = "Right Arm"
-		rightArmPose.CFrame = CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, -armSwing)
+		rightArmPose.CFrame = getPoseOffset("RightShoulder")
+			* CFrame.new(0, armBounce, 0)
+			* CFrame.Angles(-armSpread, 0, -armSwing)
 		rightArmPose.Parent = torsoPose
+
+		if PoseSnapshot.hasActivePose() then
+			local leftLegPose = Instance.new("Pose")
+			leftLegPose.Name = "Left Leg"
+			leftLegPose.CFrame = getPoseOffset("LeftHip")
+			leftLegPose.Parent = torsoPose
+
+			local rightLegPose = Instance.new("Pose")
+			rightLegPose.Name = "Right Leg"
+			rightLegPose.CFrame = getPoseOffset("RightHip")
+			rightLegPose.Parent = torsoPose
+		end
 	end
 
 	for i = 0, frameCount - 1 do
@@ -888,6 +930,38 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 	setStatus("Baked and exported animation")
 
 	Selection:Set({ exported })
+end)
+
+capturePoseBtn.MouseButton1Click:Connect(function()
+	if not activeModel then
+		setStatus("No target set")
+		return
+	end
+
+	-- Stop any running preview first
+	local wasPreviewRunning = previewConn ~= nil
+	stopPreview()
+
+	-- Get the current motors of the rig
+	local motors = getR6MotorsFromCharacter(activeModel)
+	if not (motors.RootJoint or motors.Neck) then
+		setStatus("Invalid rig")
+		return
+	end
+
+	-- Capture the current C0 values as the new pose
+	PoseSnapshot.capture(motors)
+
+	local count = PoseSnapshot.getPoseMotorCount()
+	setStatus("Pose captured")
+end)
+
+resetPoseBtn.MouseButton1Click:Connect(function()
+	-- Stop any running preview first
+	stopPreview()
+
+	PoseSnapshot.clear()
+	setStatus("Pose reset")
 end)
 
 button.Click:Connect(function()
