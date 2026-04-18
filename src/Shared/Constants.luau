@@ -15,8 +15,10 @@ Constants.MAX_NOISE = 0.05 -- Max noise amplitude
 -- Max delay in seconds
 Constants.MAX_DELAY_SECONDS = 1.0
 
--- Leg IK tuning
+-- Leg IK
 Constants.HIP_CENTER_ADJUSTMENT = 0.5
+Constants.LEG_TILT_FACTOR = 2.0 -- How much the leg tilts per stud
+Constants.MAX_LEG_TILT = 0.15 -- Maximum tilt in radians
 
 -- Bake settings
 Constants.BAKE_DURATION_SECONDS = 4.0 -- Fallback duration

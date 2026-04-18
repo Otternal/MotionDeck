@@ -246,6 +246,13 @@ local function startPreview(motors: { [string]: Motor6D })
 		originalC0Values[motor] = motor.C0
 	end
 
+	for motorName, motor in motors do
+		local origC0 = originalC0Values[motor]
+		if origC0 then
+			motor.C0 = PoseSnapshot.getBaseC0(motorName, origC0)
+		end
+	end
+
 	table.clear(footPlants)
 
 	if activeModel then
@@ -390,12 +397,11 @@ local function startPreview(motors: { [string]: Motor6D })
 		if footPlants.Left and activeMotors.LeftHip then
 			local origHipC0 = originalC0Values[activeMotors.LeftHip]
 			if origHipC0 then
-				local baseHipC0 = PoseSnapshot.getBaseC0("LeftHip", origHipC0)
 				LegIK.solveR6PlantedLeg(
 					footPlants.Left.motor,
 					footPlants.Left.legPart,
 					footPlants.Left.targetWorld,
-					baseHipC0
+					origHipC0
 				)
 			end
 		end
@@ -403,12 +409,11 @@ local function startPreview(motors: { [string]: Motor6D })
 		if footPlants.Right and activeMotors.RightHip then
 			local origHipC0 = originalC0Values[activeMotors.RightHip]
 			if origHipC0 then
-				local baseHipC0 = PoseSnapshot.getBaseC0("RightHip", origHipC0)
 				LegIK.solveR6PlantedLeg(
 					footPlants.Right.motor,
 					footPlants.Right.legPart,
 					footPlants.Right.targetWorld,
-					baseHipC0
+					origHipC0
 				)
 			end
 		end
@@ -424,7 +429,6 @@ local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles:
 end
 
 -- Bake duration is taken from the breathing frequency
--- to garuantee that the baked animation loops perfectly
 local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
 	local seq = Instance.new("KeyframeSequence")
 	seq.Name = "MotionDeck_Baked"
