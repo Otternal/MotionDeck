@@ -429,6 +429,7 @@ local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles:
 end
 
 -- Bake duration is taken from the breathing frequency
+-- to guarantee that the baked animation loops perfectly
 local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
 	local seq = Instance.new("KeyframeSequence")
 	seq.Name = "MotionDeck_Baked"
@@ -461,6 +462,118 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 	local armSpreadIntensity = state.ArmSpreadIntensity :: number
 	local armSpreadDelay = state.ArmSpreadDelay :: number
 
+	-- Helper to get the base C0 for a motor (respecting captured pose)
+	local function getBaseC0(motorName: string): CFrame
+		if not activeModel then
+			return CFrame.identity
+		end
+		local motors = getR6MotorsFromCharacter(activeModel)
+		local motor = motors[motorName]
+		if not motor then
+			return CFrame.identity
+		end
+		local originalC0 = originalC0Values[motor] or motor.C0
+		return PoseSnapshot.getBaseC0(motorName, originalC0)
+	end
+
+	-- Helper to get pose offset (delta from original to pose)
+	local function getPoseOffset(motorName: string): CFrame
+		if not activeModel then
+			return CFrame.identity
+		end
+		local motors = getR6MotorsFromCharacter(activeModel)
+		local motor = motors[motorName]
+		if not motor then
+			return CFrame.identity
+		end
+		local originalC0 = originalC0Values[motor] or motor.C0
+		local baseC0 = PoseSnapshot.getBaseC0(motorName, originalC0)
+		return originalC0:ToObjectSpace(baseC0)
+	end
+
+	-- Simulate leg IK to get the hip offset for a specific torso state
+	-- Returns a CFrame offset that represents the leg's rotation to plant the foot
+	local function simulateLegIK(
+		motorName: string,
+		torsoYOffset: number,
+		torsoPitchOffset: number,
+		isLeft: boolean
+	): CFrame
+		if not activeModel then
+			return CFrame.identity
+		end
+
+		local motors = getR6MotorsFromCharacter(activeModel)
+		local hipMotor = motors[motorName]
+		if not hipMotor then
+			return CFrame.identity
+		end
+
+		local parts = getR6PartsFromCharacter(activeModel)
+		local legPart = if isLeft then parts.LeftLeg else parts.RightLeg
+		if not legPart then
+			return CFrame.identity
+		end
+
+		local part0 = hipMotor.Part0
+		if not part0 then
+			return CFrame.identity
+		end
+
+		local originalHipC0 = originalC0Values[hipMotor] or hipMotor.C0
+		local legLength = legPart.Size.Y
+
+		-- Foot target is where the foot currently is in world space
+		-- (at the time of baking, which should be posed/default state)
+		local targetWorld = LegIK.getLegBottomWorldPosition(legPart)
+
+		-- Simulate where the torso will be at this frame
+		-- The torso's new position = original + torsoYOffset
+		-- The torso's new rotation = rotation with torsoPitchOffset
+		local torsoTransform = CFrame.new(0, 0, torsoYOffset) * CFrame.Angles(torsoPitchOffset, 0, 0)
+		local simulatedPart0CF = part0.CFrame * torsoTransform
+
+		-- Calculate hip position as if the torso had moved
+		local hipWorld = (simulatedPart0CF * originalHipC0).Position
+
+		-- Apply hip center adjustment for natural leg angle
+		local torsoCenter = simulatedPart0CF.Position
+		local hipToCenter = (torsoCenter - hipWorld) * Vector3.new(1, 0, 1)
+		local adjustedHipWorld = hipWorld + hipToCenter * Constants.HIP_CENTER_ADJUSTMENT
+
+		local toTarget = targetWorld - adjustedHipWorld
+		local distance = toTarget.Magnitude
+
+		if distance < 1e-4 then
+			return CFrame.identity
+		end
+
+		if distance > legLength * 0.99 then
+			distance = legLength * 0.99
+		end
+
+		local legDirection = toTarget.Unit
+		local desiredCenter = adjustedHipWorld + legDirection * (legLength * 0.5)
+
+		local legFront = simulatedPart0CF.RightVector
+		local legUp = -legDirection
+
+		local legRight = legFront:Cross(legUp)
+		if legRight.Magnitude < 1e-4 then
+			legFront = simulatedPart0CF.LookVector
+			legRight = legFront:Cross(legUp)
+		end
+		legRight = legRight.Unit
+
+		legFront = legUp:Cross(legRight)
+
+		local desiredLegWorld = CFrame.fromMatrix(desiredCenter, legRight, legUp, -legFront)
+		local newC0 = simulatedPart0CF:ToObjectSpace(desiredLegWorld * hipMotor.C1)
+
+		-- Return the offset from original C0 to new C0
+		return originalHipC0:ToObjectSpace(newC0)
+	end
+
 	local function addKeyframe(
 		time: number,
 		neckPitch: number,
@@ -473,20 +586,6 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
-
-		local function getPoseOffset(motorName: string): CFrame
-			if not activeModel then
-				return CFrame.identity
-			end
-			local motors = getR6MotorsFromCharacter(activeModel)
-			local motor = motors[motorName]
-			if not motor then
-				return CFrame.identity
-			end
-			local originalC0 = originalC0Values[motor] or motor.C0
-			local baseC0 = PoseSnapshot.getBaseC0(motorName, originalC0)
-			return originalC0:ToObjectSpace(baseC0)
-		end
 
 		local hrpPose = Instance.new("Pose")
 		hrpPose.Name = "HumanoidRootPart"
@@ -517,17 +616,18 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 			* CFrame.Angles(-armSpread, 0, -armSwing)
 		rightArmPose.Parent = torsoPose
 
-		if PoseSnapshot.hasActivePose() then
-			local leftLegPose = Instance.new("Pose")
-			leftLegPose.Name = "Left Leg"
-			leftLegPose.CFrame = getPoseOffset("LeftHip")
-			leftLegPose.Parent = torsoPose
+		-- Leg IK - simulate the foot planting for this frame
+		local leftLegIKOffset = simulateLegIK("LeftHip", torsoY, torsoPitch, true)
+		local leftLegPose = Instance.new("Pose")
+		leftLegPose.Name = "Left Leg"
+		leftLegPose.CFrame = leftLegIKOffset
+		leftLegPose.Parent = torsoPose
 
-			local rightLegPose = Instance.new("Pose")
-			rightLegPose.Name = "Right Leg"
-			rightLegPose.CFrame = getPoseOffset("RightHip")
-			rightLegPose.Parent = torsoPose
-		end
+		local rightLegIKOffset = simulateLegIK("RightHip", torsoY, torsoPitch, false)
+		local rightLegPose = Instance.new("Pose")
+		rightLegPose.Name = "Right Leg"
+		rightLegPose.CFrame = rightLegIKOffset
+		rightLegPose.Parent = torsoPose
 	end
 
 	for i = 0, frameCount - 1 do
@@ -578,6 +678,7 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
 	end
 
+	-- Final keyframe (at duration) - same calculation
 	do
 		local time = duration
 

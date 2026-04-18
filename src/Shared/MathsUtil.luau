@@ -15,8 +15,6 @@ function MathsUtil.sin(t: number, freq: number, amp: number, phase: number?): nu
 	return math.sin(MathsUtil.tau * freq * t + (phase or 0)) * amp
 end
 
--- Loopable Perlin noise
--- Maps time to a point on a SMALL circle so noise variation is gentler
 function MathsUtil.loopableNoise(t: number, duration: number, seed: number?): number
 	if duration <= 0 then
 		return 0
