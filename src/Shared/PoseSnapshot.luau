@@ -28,7 +28,7 @@ function PoseSnapshot.getBaseC0(motorName: string, fallback: CFrame): CFrame
 	return fallback
 end
 
--- Clear the captured pose (reset to default)
+-- Clear the captured pose
 function PoseSnapshot.clear()
 	activePose = nil
 end

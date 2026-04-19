@@ -24,4 +24,24 @@ Constants.MAX_LEG_TILT = 0.15 -- Maximum tilt in radians
 Constants.BAKE_DURATION_SECONDS = 4.0 -- Fallback duration
 Constants.BAKE_FPS = 60 -- Frames per second
 
+-- Factory R6 motor C0 values
+Constants.R6_FACTORY_C0 = {
+	RootJoint = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.pi, 0),
+	Neck = CFrame.new(0, 1, 0) * CFrame.Angles(-math.pi / 2, 0, math.pi),
+	LeftShoulder = CFrame.new(-1, 0.5, 0) * CFrame.Angles(0, -math.pi / 2, 0),
+	RightShoulder = CFrame.new(1, 0.5, 0) * CFrame.Angles(0, math.pi / 2, 0),
+	LeftHip = CFrame.new(-1, -1, 0) * CFrame.Angles(0, -math.pi / 2, 0),
+	RightHip = CFrame.new(1, -1, 0) * CFrame.Angles(0, math.pi / 2, 0),
+}
+
+-- Factory R6 motor C1 values
+Constants.R6_FACTORY_C1 = {
+	RootJoint = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.pi, 0),
+	Neck = CFrame.new(0, -0.5, 0) * CFrame.Angles(-math.pi / 2, 0, math.pi),
+	LeftShoulder = CFrame.new(0.5, 0.5, 0) * CFrame.Angles(0, -math.pi / 2, 0),
+	RightShoulder = CFrame.new(-0.5, 0.5, 0) * CFrame.Angles(0, math.pi / 2, 0),
+	LeftHip = CFrame.new(-0.5, 1, 0) * CFrame.Angles(0, -math.pi / 2, 0),
+	RightHip = CFrame.new(0.5, 1, 0) * CFrame.Angles(0, math.pi / 2, 0),
+}
+
 return Constants

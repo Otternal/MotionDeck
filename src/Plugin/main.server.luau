@@ -18,7 +18,6 @@ local MathsUtil = require(ReplicatedStorage.MotionDeckShared.MathsUtil)
 local ParamDefs = require(ReplicatedStorage.MotionDeckShared.ParamDefs)
 local Constants = require(ReplicatedStorage.MotionDeckShared.Constants)
 local LegIK = require(ReplicatedStorage.MotionDeckShared.LegIK)
-local PoseSnapshot = require(ReplicatedStorage.MotionDeckShared.PoseSnapshot)
 
 -----------------------------
 -- PLUGIN SETUP --
@@ -71,8 +70,6 @@ local previewFrame = getRequiredFrame(ui, "PreviewFrame")
 -- Rig section
 local targetLabel = rigFrame:WaitForChild("TargetLabel") :: TextLabel
 local useSelectedBtn = rigFrame:WaitForChild("RigButton") :: TextButton
-local capturePoseBtn = rigFrame:WaitForChild("CapturePoseButton") :: TextButton
-local resetPoseBtn = rigFrame:WaitForChild("ResetPoseButton") :: TextButton
 
 -- Sliders section
 local paramsScroll = sliderFrame:WaitForChild("ScrollingFrame") :: ScrollingFrame
@@ -240,17 +237,9 @@ local function startPreview(motors: { [string]: Motor6D })
 
 	activeMotors = motors
 
-	-- Store original C0 values
 	table.clear(originalC0Values)
 	for _, motor in motors do
 		originalC0Values[motor] = motor.C0
-	end
-
-	for motorName, motor in motors do
-		local origC0 = originalC0Values[motor]
-		if origC0 then
-			motor.C0 = PoseSnapshot.getBaseC0(motorName, origC0)
-		end
 	end
 
 	table.clear(footPlants)
@@ -286,7 +275,6 @@ local function startPreview(motors: { [string]: Motor6D })
 
 		local noiseIntensity = paramState.NoiseIntensity :: number
 
-		-- Read intensity and delay for each body part
 		local headIntensity = paramState.HeadIntensity :: number
 		local headDelay = paramState.HeadDelay :: number
 
@@ -305,10 +293,8 @@ local function startPreview(motors: { [string]: Motor6D })
 		local armSpreadIntensity = paramState.ArmSpreadIntensity :: number
 		local armSpreadDelay = paramState.ArmSpreadDelay :: number
 
-		-- Calculate motion values
 		local noiseAmp = noiseIntensity * Constants.MAX_NOISE
 
-		-- Loop duration must match bake duration for preview-export fidelity
 		local loopDuration = if freq > 0 then 1 / freq else 1
 
 		local neckPitch = MathsUtil.sin(
@@ -353,41 +339,33 @@ local function startPreview(motors: { [string]: Motor6D })
 			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
 		) + MathsUtil.loopableNoise(t, loopDuration, 6) * noiseAmp
 
-		-- Apply motion on top of original C0 values
 		if activeMotors.Neck then
 			local origC0 = originalC0Values[activeMotors.Neck]
 			if origC0 then
-				local baseC0 = PoseSnapshot.getBaseC0("Neck", origC0)
-				activeMotors.Neck.C0 = baseC0 * CFrame.Angles(neckPitch, 0, 0)
+				activeMotors.Neck.C0 = origC0 * CFrame.Angles(neckPitch, 0, 0)
 			end
 		end
 
-		-- RootJoint
 		if activeMotors.RootJoint then
 			local origC0 = originalC0Values[activeMotors.RootJoint]
 			if origC0 then
-				local baseC0 = PoseSnapshot.getBaseC0("RootJoint", origC0)
-				activeMotors.RootJoint.C0 = baseC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
+				activeMotors.RootJoint.C0 = origC0 * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
 			end
 		end
 
-		-- LeftShoulder
 		if activeMotors.LeftShoulder then
 			local origC0 = originalC0Values[activeMotors.LeftShoulder]
 			if origC0 then
-				local baseC0 = PoseSnapshot.getBaseC0("LeftShoulder", origC0)
-				activeMotors.LeftShoulder.C0 = baseC0
+				activeMotors.LeftShoulder.C0 = origC0
 					* CFrame.new(0, armBounce, 0)
 					* CFrame.Angles(-armSpread, 0, armSwing)
 			end
 		end
 
-		-- RightShoulder
 		if activeMotors.RightShoulder then
 			local origC0 = originalC0Values[activeMotors.RightShoulder]
 			if origC0 then
-				local baseC0 = PoseSnapshot.getBaseC0("RightShoulder", origC0)
-				activeMotors.RightShoulder.C0 = baseC0
+				activeMotors.RightShoulder.C0 = origC0
 					* CFrame.new(0, armBounce, 0)
 					* CFrame.Angles(-armSpread, 0, -armSwing)
 			end
@@ -428,161 +406,195 @@ local function getLoopDurationFromBreathing(state: ParamDefs.ParamState, cycles:
 	return (1 / freq) * cycles
 end
 
--- Bake duration is taken from the breathing frequency
--- to guarantee that the baked animation loops perfectly
 local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: number, fps: number): KeyframeSequence
 	local seq = Instance.new("KeyframeSequence")
 	seq.Name = "MotionDeck_Baked"
 	seq.Loop = true
 
+	if not activeModel then
+		return seq
+	end
+
+	local motors = getR6MotorsFromCharacter(activeModel)
+	local restC0s: { [Motor6D]: CFrame } = {}
+	local restC1s: { [Motor6D]: CFrame } = {}
+	for _, motor in motors do
+		restC0s[motor] = motor.C0
+		restC1s[motor] = motor.C1
+	end
+
+	-- Set up foot plants from the rig's current foot positions
+	local bakeFootPlants: { [string]: LegIK.FootPlantData } = {}
+	local parts = getR6PartsFromCharacter(activeModel)
+	if motors.LeftHip and parts.LeftLeg then
+		bakeFootPlants.Left = {
+			motor = motors.LeftHip,
+			legPart = parts.LeftLeg,
+			targetWorld = LegIK.getLegBottomWorldPosition(parts.LeftLeg),
+		}
+	end
+	if motors.RightHip and parts.RightLeg then
+		bakeFootPlants.Right = {
+			motor = motors.RightHip,
+			legPart = parts.RightLeg,
+			targetWorld = LegIK.getLegBottomWorldPosition(parts.RightLeg),
+		}
+	end
+
 	local frameCount = math.max(1, math.round(duration * fps))
 	local dt = 1 / fps
 
-	-- Read params
 	local freq = state.BreathingRate :: number
-
 	local noiseIntensity = state.NoiseIntensity :: number
 	local noiseAmp = noiseIntensity * Constants.MAX_NOISE
-
 	local headIntensity = state.HeadIntensity :: number
 	local headDelay = state.HeadDelay :: number
-
 	local torsoPitchIntensity = state.TorsoPitchIntensity :: number
 	local torsoPitchDelay = state.TorsoPitchDelay :: number
-
 	local torsoLiftIntensity = state.TorsoLiftIntensity :: number
 	local torsoLiftDelay = state.TorsoLiftDelay :: number
-
 	local armSwingIntensity = state.ArmSwingIntensity :: number
 	local armSwingDelay = state.ArmSwingDelay :: number
-
 	local armBreathingIntensity = state.ArmBreathingIntensity :: number
 	local armBreathingDelay = state.ArmBreathingDelay :: number
-
 	local armSpreadIntensity = state.ArmSpreadIntensity :: number
 	local armSpreadDelay = state.ArmSpreadDelay :: number
 
-	-- Helper to get the base C0 for a motor (respecting captured pose)
-	local function getBaseC0(motorName: string): CFrame
-		if not activeModel then
+	local function applyFrame(time: number): { [string]: CFrame }
+		local neckPitch = MathsUtil.sin(
+			time,
+			freq,
+			headIntensity * Constants.MAX_HEAD_ROTATION,
+			-headDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
+
+		local torsoPitch = MathsUtil.sin(
+			time,
+			freq,
+			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
+			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 2) * noiseAmp
+
+		local torsoY = -MathsUtil.sin(
+			time,
+			freq,
+			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
+			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 3) * noiseAmp
+
+		local armSwing = MathsUtil.sin(
+			time,
+			freq,
+			armSwingIntensity * Constants.MAX_ARM_SWING,
+			-armSwingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 4) * noiseAmp
+
+		local armBounce = -MathsUtil.sin(
+			time,
+			freq,
+			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
+			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 5) * noiseAmp
+
+		local armSpread = -MathsUtil.sin(
+			time,
+			freq,
+			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
+			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
+		) + MathsUtil.loopableNoise(time, duration, 6) * noiseAmp
+
+		local finalC0s: { [string]: CFrame } = {}
+
+		if motors.Neck then
+			local rest = restC0s[motors.Neck]
+			if rest then
+				local newC0 = rest * CFrame.Angles(neckPitch, 0, 0)
+				motors.Neck.C0 = newC0
+				finalC0s.Neck = newC0
+			end
+		end
+
+		if motors.RootJoint then
+			local rest = restC0s[motors.RootJoint]
+			if rest then
+				local newC0 = rest * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
+				motors.RootJoint.C0 = newC0
+				finalC0s.RootJoint = newC0
+			end
+		end
+
+		if motors.LeftShoulder then
+			local rest = restC0s[motors.LeftShoulder]
+			if rest then
+				local newC0 = rest * CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, armSwing)
+				motors.LeftShoulder.C0 = newC0
+				finalC0s.LeftShoulder = newC0
+			end
+		end
+
+		if motors.RightShoulder then
+			local rest = restC0s[motors.RightShoulder]
+			if rest then
+				local newC0 = rest * CFrame.new(0, armBounce, 0) * CFrame.Angles(-armSpread, 0, -armSwing)
+				motors.RightShoulder.C0 = newC0
+				finalC0s.RightShoulder = newC0
+			end
+		end
+
+		if bakeFootPlants.Left and motors.LeftHip then
+			local restHip = restC0s[motors.LeftHip]
+			if restHip then
+				LegIK.solveR6PlantedLeg(
+					bakeFootPlants.Left.motor,
+					bakeFootPlants.Left.legPart,
+					bakeFootPlants.Left.targetWorld,
+					restHip
+				)
+				finalC0s.LeftHip = motors.LeftHip.C0
+			end
+		end
+
+		if bakeFootPlants.Right and motors.RightHip then
+			local restHip = restC0s[motors.RightHip]
+			if restHip then
+				LegIK.solveR6PlantedLeg(
+					bakeFootPlants.Right.motor,
+					bakeFootPlants.Right.legPart,
+					bakeFootPlants.Right.targetWorld,
+					restHip
+				)
+				finalC0s.RightHip = motors.RightHip.C0
+			end
+		end
+
+		return finalC0s
+	end
+
+	local function toPoseCFrame(motorName: string, finalC0: CFrame?): CFrame
+		if not finalC0 then
 			return CFrame.identity
 		end
-		local motors = getR6MotorsFromCharacter(activeModel)
+
+		local factoryC0 = Constants.R6_FACTORY_C0[motorName]
+		local factoryC1 = Constants.R6_FACTORY_C1[motorName]
+		if not factoryC0 or not factoryC1 then
+			return CFrame.identity
+		end
+
 		local motor = motors[motorName]
 		if not motor then
 			return CFrame.identity
 		end
-		local originalC0 = originalC0Values[motor] or motor.C0
-		return PoseSnapshot.getBaseC0(motorName, originalC0)
+
+		local liveC1 = restC1s[motor]
+		if not liveC1 then
+			return CFrame.identity
+		end
+
+		return factoryC0:Inverse() * finalC0 * liveC1:Inverse() * factoryC1
 	end
 
-	-- Helper to get pose offset (delta from original to pose)
-	local function getPoseOffset(motorName: string): CFrame
-		if not activeModel then
-			return CFrame.identity
-		end
-		local motors = getR6MotorsFromCharacter(activeModel)
-		local motor = motors[motorName]
-		if not motor then
-			return CFrame.identity
-		end
-		local originalC0 = originalC0Values[motor] or motor.C0
-		local baseC0 = PoseSnapshot.getBaseC0(motorName, originalC0)
-		return originalC0:ToObjectSpace(baseC0)
-	end
-
-	-- Simulate leg IK to get the hip offset for a specific torso state
-	-- Returns a CFrame offset that represents the leg's rotation to plant the foot
-	local function simulateLegIK(
-		motorName: string,
-		torsoYOffset: number,
-		torsoPitchOffset: number,
-		isLeft: boolean
-	): CFrame
-		if not activeModel then
-			return CFrame.identity
-		end
-
-		local motors = getR6MotorsFromCharacter(activeModel)
-		local hipMotor = motors[motorName]
-		if not hipMotor then
-			return CFrame.identity
-		end
-
-		local parts = getR6PartsFromCharacter(activeModel)
-		local legPart = if isLeft then parts.LeftLeg else parts.RightLeg
-		if not legPart then
-			return CFrame.identity
-		end
-
-		local part0 = hipMotor.Part0
-		if not part0 then
-			return CFrame.identity
-		end
-
-		local originalHipC0 = originalC0Values[hipMotor] or hipMotor.C0
-		local legLength = legPart.Size.Y
-
-		-- Foot target is where the foot currently is in world space
-		-- (at the time of baking, which should be posed/default state)
-		local targetWorld = LegIK.getLegBottomWorldPosition(legPart)
-
-		-- Simulate where the torso will be at this frame
-		-- The torso's new position = original + torsoYOffset
-		-- The torso's new rotation = rotation with torsoPitchOffset
-		local torsoTransform = CFrame.new(0, 0, torsoYOffset) * CFrame.Angles(torsoPitchOffset, 0, 0)
-		local simulatedPart0CF = part0.CFrame * torsoTransform
-
-		-- Calculate hip position as if the torso had moved
-		local hipWorld = (simulatedPart0CF * originalHipC0).Position
-
-		-- Apply hip center adjustment for natural leg angle
-		local torsoCenter = simulatedPart0CF.Position
-		local hipToCenter = (torsoCenter - hipWorld) * Vector3.new(1, 0, 1)
-		local adjustedHipWorld = hipWorld + hipToCenter * Constants.HIP_CENTER_ADJUSTMENT
-
-		local toTarget = targetWorld - adjustedHipWorld
-		local distance = toTarget.Magnitude
-
-		if distance < 1e-4 then
-			return CFrame.identity
-		end
-
-		if distance > legLength * 0.99 then
-			distance = legLength * 0.99
-		end
-
-		local legDirection = toTarget.Unit
-		local desiredCenter = adjustedHipWorld + legDirection * (legLength * 0.5)
-
-		local legFront = simulatedPart0CF.RightVector
-		local legUp = -legDirection
-
-		local legRight = legFront:Cross(legUp)
-		if legRight.Magnitude < 1e-4 then
-			legFront = simulatedPart0CF.LookVector
-			legRight = legFront:Cross(legUp)
-		end
-		legRight = legRight.Unit
-
-		legFront = legUp:Cross(legRight)
-
-		local desiredLegWorld = CFrame.fromMatrix(desiredCenter, legRight, legUp, -legFront)
-		local newC0 = simulatedPart0CF:ToObjectSpace(desiredLegWorld * hipMotor.C1)
-
-		-- Return the offset from original C0 to new C0
-		return originalHipC0:ToObjectSpace(newC0)
-	end
-
-	local function addKeyframe(
-		time: number,
-		neckPitch: number,
-		torsoPitch: number,
-		torsoY: number,
-		armSwing: number,
-		armBounce: number,
-		armSpread: number
-	)
+	local function addKeyframeFromC0s(time: number, finalC0s: { [string]: CFrame })
 		local kf = Instance.new("Keyframe")
 		kf.Time = time
 		kf.Parent = seq
@@ -594,137 +606,51 @@ local function bakeKeyframeSequence(state: ParamDefs.ParamState, duration: numbe
 
 		local torsoPose = Instance.new("Pose")
 		torsoPose.Name = "Torso"
-		torsoPose.CFrame = getPoseOffset("RootJoint") * CFrame.new(0, 0, torsoY) * CFrame.Angles(torsoPitch, 0, 0)
+		torsoPose.CFrame = toPoseCFrame("RootJoint", finalC0s.RootJoint)
 		torsoPose.Parent = hrpPose
 
 		local headPose = Instance.new("Pose")
 		headPose.Name = "Head"
-		headPose.CFrame = getPoseOffset("Neck") * CFrame.Angles(neckPitch, 0, 0)
+		headPose.CFrame = toPoseCFrame("Neck", finalC0s.Neck)
 		headPose.Parent = torsoPose
 
 		local leftArmPose = Instance.new("Pose")
 		leftArmPose.Name = "Left Arm"
-		leftArmPose.CFrame = getPoseOffset("LeftShoulder")
-			* CFrame.new(0, armBounce, 0)
-			* CFrame.Angles(-armSpread, 0, armSwing)
+		leftArmPose.CFrame = toPoseCFrame("LeftShoulder", finalC0s.LeftShoulder)
 		leftArmPose.Parent = torsoPose
 
 		local rightArmPose = Instance.new("Pose")
 		rightArmPose.Name = "Right Arm"
-		rightArmPose.CFrame = getPoseOffset("RightShoulder")
-			* CFrame.new(0, armBounce, 0)
-			* CFrame.Angles(-armSpread, 0, -armSwing)
+		rightArmPose.CFrame = toPoseCFrame("RightShoulder", finalC0s.RightShoulder)
 		rightArmPose.Parent = torsoPose
 
-		-- Leg IK - simulate the foot planting for this frame
-		local leftLegIKOffset = simulateLegIK("LeftHip", torsoY, torsoPitch, true)
 		local leftLegPose = Instance.new("Pose")
 		leftLegPose.Name = "Left Leg"
-		leftLegPose.CFrame = leftLegIKOffset
+		leftLegPose.CFrame = toPoseCFrame("LeftHip", finalC0s.LeftHip)
 		leftLegPose.Parent = torsoPose
 
-		local rightLegIKOffset = simulateLegIK("RightHip", torsoY, torsoPitch, false)
 		local rightLegPose = Instance.new("Pose")
 		rightLegPose.Name = "Right Leg"
-		rightLegPose.CFrame = rightLegIKOffset
+		rightLegPose.CFrame = toPoseCFrame("RightHip", finalC0s.RightHip)
 		rightLegPose.Parent = torsoPose
 	end
 
 	for i = 0, frameCount - 1 do
 		local time = i * dt
-
-		local neckPitch = MathsUtil.sin(
-			time,
-			freq,
-			headIntensity * Constants.MAX_HEAD_ROTATION,
-			-headDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
-
-		local torsoPitch = MathsUtil.sin(
-			time,
-			freq,
-			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
-			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 2) * noiseAmp
-
-		local torsoY = -MathsUtil.sin(
-			time,
-			freq,
-			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
-			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 3) * noiseAmp
-
-		local armSwing = MathsUtil.sin(
-			time,
-			freq,
-			armSwingIntensity * Constants.MAX_ARM_SWING,
-			-armSwingDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 4) * noiseAmp
-
-		local armBounce = -MathsUtil.sin(
-			time,
-			freq,
-			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
-			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 5) * noiseAmp
-
-		local armSpread = -MathsUtil.sin(
-			time,
-			freq,
-			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
-			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 6) * noiseAmp
-
-		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
+		local finalC0s = applyFrame(time)
+		addKeyframeFromC0s(time, finalC0s)
 	end
 
-	-- Final keyframe (at duration) - same calculation
 	do
-		local time = duration
+		local finalC0s = applyFrame(duration)
+		addKeyframeFromC0s(duration, finalC0s)
+	end
 
-		local neckPitch = MathsUtil.sin(
-			time,
-			freq,
-			headIntensity * Constants.MAX_HEAD_ROTATION,
-			-headDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 1) * noiseAmp
-
-		local torsoPitch = MathsUtil.sin(
-			time,
-			freq,
-			torsoPitchIntensity * Constants.MAX_TORSO_PITCH,
-			-torsoPitchDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 2) * noiseAmp
-
-		local torsoY = -MathsUtil.sin(
-			time,
-			freq,
-			torsoLiftIntensity * Constants.MAX_TORSO_LIFT,
-			-torsoLiftDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 3) * noiseAmp
-
-		local armSwing = MathsUtil.sin(
-			time,
-			freq,
-			armSwingIntensity * Constants.MAX_ARM_SWING,
-			-armSwingDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 4) * noiseAmp
-
-		local armBounce = -MathsUtil.sin(
-			time,
-			freq,
-			armBreathingIntensity * Constants.MAX_ARM_BREATHING,
-			-armBreathingDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 5) * noiseAmp
-
-		local armSpread = -MathsUtil.sin(
-			time,
-			freq,
-			armSpreadIntensity * Constants.MAX_ARM_SPREAD,
-			-armSpreadDelay * Constants.MAX_DELAY_SECONDS
-		) + MathsUtil.loopableNoise(time, duration, 6) * noiseAmp
-
-		addKeyframe(time, neckPitch, torsoPitch, torsoY, armSwing, armBounce, armSpread)
+	-- Restore the rig to its pre-bake state
+	for motor, rest in restC0s do
+		if motor and motor.Parent then
+			motor.C0 = rest
+		end
 	end
 
 	return seq
@@ -737,7 +663,6 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 		return
 	end
 
-	-- Register a local test animation id
 	local animId: string
 	local success, result = pcall(function()
 		return KeyframeSequenceProvider:RegisterActiveKeyframeSequence(seq)
@@ -752,7 +677,6 @@ local function playBakedOnRig(model: Model, seq: KeyframeSequence)
 	local anim = Instance.new("Animation")
 	anim.AnimationId = animId
 
-	-- Stop previous track
 	if currentTrack then
 		currentTrack:Stop(0)
 		currentTrack:Destroy()
@@ -829,7 +753,6 @@ end
 local function buildParamSliders(paramsScroll: ScrollingFrame)
 	disconnectSliders()
 
-	-- Template
 	local templateInst = paramsScroll:WaitForChild("SliderRowTemplate")
 	if not templateInst:IsA("Frame") then
 		error("MotionDeck: SliderRowTemplate must be a Frame")
@@ -837,14 +760,12 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 	local template = templateInst :: Frame
 	template.Visible = false
 
-	-- Clear previously created rows
 	for _, child in paramsScroll:GetChildren() do
 		if child:IsA("Frame") and child ~= template then
 			child:Destroy()
 		end
 	end
 
-	-- Making sure paramState is valid
 	paramState = ParamDefs.sanitiseState(paramState)
 
 	for _, id in ParamDefs.getOrderedParamIds() do
@@ -854,13 +775,11 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 		end
 		local ndef = def :: ParamDefs.ParamNumberDef
 
-		-- Clone row template
 		local row = template:Clone()
 		row.Name = id
 		row.Visible = true
 		row.Parent = paramsScroll
 
-		-- Get all UI elements
 		local paramLabel = row:WaitForChild("ParamLabel") :: TextLabel
 		local valueLabel = row:WaitForChild("ValueLabel") :: TextLabel
 		local bar = row:WaitForChild("Bar") :: Frame
@@ -887,18 +806,15 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 				alpha = (newValue - ndef.min) / (ndef.max - ndef.min)
 			end
 
-			-- Centre knob
 			knob.Position = UDim2.fromScale(alpha, 0.5)
 		end
 
-		-- Initiate from state
 		local current = paramState[id]
 		if typeof(current) ~= "number" then
 			current = ndef.default
 		end
 		setValue(current :: number)
 
-		-- Drag logic
 		local dragging = false
 
 		local function valueFromMouseX(mouseX: number): number
@@ -931,7 +847,6 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 			end
 		end
 
-		-- Connect once per slider
 		table.insert(sliderConnections, bar.InputBegan:Connect(onInputBegan))
 		table.insert(sliderConnections, knob.InputBegan:Connect(onInputBegan))
 
@@ -941,7 +856,6 @@ local function buildParamSliders(paramsScroll: ScrollingFrame)
 		table.insert(sliderConnections, bar.InputEnded:Connect(onInputEnded))
 		table.insert(sliderConnections, knob.InputEnded:Connect(onInputEnded))
 
-		-- Safety inclusion
 		table.insert(
 			sliderConnections,
 			UserInputService.InputEnded:Connect(function(input)
@@ -1035,38 +949,6 @@ bakePlayBtn.MouseButton1Click:Connect(function()
 	setStatus("Baked and exported animation")
 
 	Selection:Set({ exported })
-end)
-
-capturePoseBtn.MouseButton1Click:Connect(function()
-	if not activeModel then
-		setStatus("No target set")
-		return
-	end
-
-	-- Stop any running preview first
-	local wasPreviewRunning = previewConn ~= nil
-	stopPreview()
-
-	-- Get the current motors of the rig
-	local motors = getR6MotorsFromCharacter(activeModel)
-	if not (motors.RootJoint or motors.Neck) then
-		setStatus("Invalid rig")
-		return
-	end
-
-	-- Capture the current C0 values as the new pose
-	PoseSnapshot.capture(motors)
-
-	local count = PoseSnapshot.getPoseMotorCount()
-	setStatus("Pose captured")
-end)
-
-resetPoseBtn.MouseButton1Click:Connect(function()
-	-- Stop any running preview first
-	stopPreview()
-
-	PoseSnapshot.clear()
-	setStatus("Pose reset")
 end)
 
 button.Click:Connect(function()
